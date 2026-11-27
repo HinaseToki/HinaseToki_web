@@ -1,0 +1,256 @@
+あ	a
+ア	a
+い	i
+イ	i
+う	u
+ウ	u
+え	e
+エ	e
+お	o
+オ	o
+か	k a
+カ	k a
+き	k i
+キ	k i
+く	k u
+ク	k u
+け	k e
+ケ	k e
+こ	k o
+コ	k o
+さ	s a
+サ	s a
+し	sh i
+シ	sh i
+す	s u
+ス	s u
+せ	s e
+セ	s e
+そ	s o
+ソ	s o
+た	t a
+タ	t a
+ち	ch i
+チ	ch i
+つ	ts u
+ツ	ts u
+て	t e
+テ	t e
+と	t o
+ト	t o
+な	n a
+ナ	n a
+に	n i
+ニ	n i
+ぬ	n u
+ヌ	n u
+ね	n e
+ネ	n e
+の	n o
+ノ	n o
+は	h a
+ハ	h a
+ひ	h i
+ヒ	h i
+ふ	f u
+フ	f u
+へ	h e
+ヘ	h e
+ほ	h o
+ホ	h o
+ま	m a
+マ	m a
+み	m i
+ミ	m i
+む	m u
+ム	m u
+め	m e
+メ	m e
+も	m o
+モ	m o
+や	ya
+ヤ	ya
+ゆ	yu
+ユ	yu
+よ	yo
+ヨ	yo
+ら	r a
+ラ	r a
+り	r i
+リ	r i
+る	r u
+ル	r u
+れ	r e
+レ	r e
+ろ	r o
+ロ	r o
+わ	wa
+ワ	wa
+を	o
+ヲ	o
+ん	N
+ン	N
+が	g a
+ガ	g a
+ぎ	g i
+ギ	g i
+ぐ	g u
+グ	g u
+げ	g e
+ゲ	g e
+ご	g o
+ゴ	g o
+ざ	z a
+ザ	z a
+じ	j i
+ジ	j i
+ず	z u
+ズ	z u
+ぜ	z e
+ゼ	z e
+ぞ	z o
+ゾ	z o
+だ	d a
+ダ	d a
+ぢ	j i
+ヂ	j i
+づ	z u
+ヅ	z u
+で	d e
+デ	d e
+ど	d o
+ド	d o
+ば	b a
+バ	b a
+び	b i
+ビ	b i
+ぶ	b u
+ブ	b u
+べ	b e
+ベ	b e
+ぼ	b o
+ボ	b o
+ぱ	p a
+パ	p a
+ぴ	p i
+ピ	p i
+ぷ	p u
+プ	p u
+ぺ	p e
+ペ	p e
+ぽ	p o
+ポ	p o
+きゃ	k ya
+キャ	k ya
+きゅ	k yu
+キュ	k yu
+きょ	k yo
+キョ	k yo
+ぎゃ	g ya
+ギャ	g ya
+ぎゅ	g yu
+ギュ	g yu
+ぎょ	g yo
+ギョ	g yo
+しゃ	sh ya
+シャ	sh ya
+しゅ	sh yu
+シュ	sh yu
+しょ	sh yo
+ショ	sh yo
+じゃ	j a
+ジャ	j a
+じゅ	j u
+ジュ	j u
+じょ	j o
+ジョ	j o
+ちゃ	ch a
+チャ	ch a
+ちゅ	ch u
+チュ	ch u
+ちょ	ch o
+チョ	ch o
+にゃ	n ya
+ニャ	n ya
+にゅ	n yu
+ニュ	n yu
+にょ	n yo
+ニョ	n yo
+ひゃ	h ya
+ヒャ	h ya
+ひゅ	h yu
+ヒュ	h yu
+ひょ	h yo
+ヒョ	h yo
+びゃ	b ya
+ビャ	b ya
+びゅ	b yu
+ビュ	b yu
+びょ	b yo
+ビョ	b yo
+ぴゃ	p ya
+ピャ	p ya
+ぴゅ	p yu
+ピュ	p yu
+ぴょ	p yo
+ピョ	p yo
+みゃ	m ya
+ミャ	m ya
+みゅ	m yu
+ミュ	m yu
+みょ	m yo
+ミョ	m yo
+りゃ	r ya
+リャ	r ya
+りゅ	r yu
+リュ	r yu
+りょ	r yo
+リョ	r yo
+てぃ	t i
+ティ	t i
+でぃ	d i
+ディ	d i
+ふぁ	f a
+ファ	f a
+ふぃ	f i
+フィ	f i
+ふぇ	f e
+フェ	f e
+ふぉ	f o
+フォ	f o
+てゅ	t yu
+テュ	t yu
+でゅ	d yu
+デュ	d yu
+とぅ	t u
+トゥ	t u
+どぅ	d u
+ドゥ	d u
+ゔ	b u
+ヴ	b u
+ゔぁ	b a
+ヴァ	b a
+ゔぃ	b i
+ヴィ	b i
+ゔぇ	b e
+ヴェ	b e
+ゔぉ	b o
+ヴォ	b o
+ちぇ	ch e
+チェ	ch e
+つぁ	ts a
+ツァ	ts a
+ゐ	i
+ヰ	i
+ゑ	e
+ヱ	e
+ぁ	a
+ァ	a
+ぃ	i
+ィ	i
+ぅ	u
+ゥ	u
+ぇ	e
+ェ	e
+ぉ	o
+ォ	o

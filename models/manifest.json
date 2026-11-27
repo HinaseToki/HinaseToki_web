@@ -1,0 +1,60 @@
+{
+ "graphs": {
+  "linguistic": "linguistic.onnx",
+  "dur": "dur.onnx",
+  "pitch": "pitch.onnx",
+  "variance": "variance.onnx",
+  "acoustic": "acoustic.onnx",
+  "vocoder": "vocoder.onnx"
+ },
+ "files": {
+  "linguistic.onnx": [
+   {
+    "name": "linguistic.onnx",
+    "size": 59973026
+   }
+  ],
+  "dur.onnx": [
+   {
+    "name": "dur.onnx",
+    "size": 13317479
+   }
+  ],
+  "pitch.onnx": [
+   {
+    "name": "pitch.onnx",
+    "size": 51228664
+   }
+  ],
+  "variance.onnx": [
+   {
+    "name": "variance.onnx",
+    "size": 23670885
+   }
+  ],
+  "acoustic.onnx": [
+   {
+    "name": "acoustic.onnx.00",
+    "size": 99614720
+   },
+   {
+    "name": "acoustic.onnx.01",
+    "size": 99614720
+   },
+   {
+    "name": "acoustic.onnx.02",
+    "size": 86807536
+   }
+  ],
+  "vocoder.onnx": [
+   {
+    "name": "vocoder.onnx",
+    "size": 56616643
+   }
+  ]
+ },
+ "phonemes": "phonemes.json",
+ "dictionary": "dictionary-ja.txt",
+ "depth": 0.6,
+ "version": "492b03e983b8"
+}

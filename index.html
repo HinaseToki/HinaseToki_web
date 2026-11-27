@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>히나세 토키</title>
+<link rel="stylesheet" href="style.css?v=13">
+<meta name="theme-color" content="#5c55d6">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="description" content="가사와 멜로디를 넣으면 AI 가상 가수 히나세 토키가 노래해요.">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2=".6"><stop offset="0" stop-color="#4e54de"/><stop offset="1" stop-color="#9e64e8"/></linearGradient></defs>
+      <circle cx="50" cy="50" r="50" fill="url(#g)"/>
+      <circle cx="50" cy="50" r="33" fill="none" stroke="#fff" stroke-width="5.8"/>
+      <circle cx="50" cy="26" r="2.6" fill="#fff"/>
+      <g fill="#fff"><rect x="34.5" y="44" width="5.6" height="12" rx="2.8"/><rect x="43" y="38.5" width="5.6" height="23" rx="2.8"/><rect x="51.5" y="32" width="5.6" height="36" rx="2.8"/><rect x="60" y="37" width="5.6" height="26" rx="2.8"/><rect x="68.5" y="42.5" width="5.6" height="15" rx="2.8"/></g>
+    </svg>
+    <div><h1>히나세 토키</h1><p>가사와 멜로디만 넣으면 토키가 노래해요.</p></div>
+  </div>
+</header>
+<main>
+  <section class="card" id="loadCard">
+    <label id="voicePick" hidden>목소리 <select id="voice" aria-label="부를 목소리"></select></label>
+    <button id="loadBtn">목소리 불러오기</button>
+    <span id="loadInfo" role="status">처음 한 번은 목소리 데이터(470MB)를 내려받아요. 노래는 이 기기 안에서 만들어져요.</span>
+    <progress id="loadBar" max="1" value="0" hidden aria-label="목소리 데이터 받는 중"></progress>
+  </section>
+
+  <section class="card">
+    <details id="midiBox">
+      <summary>MIDI 파일로 시작하기</summary>
+      <p class="hint">멜로디 트랙을 고르고 가사를 한 줄씩 적으면, 각 줄을 멜로디에 맞춰 악보로 만들어 줘요. 파일은 이 기기 밖으로 나가지 않아요. 어긋나는 줄은 앞에 <code>@박자</code>를 적어 시작 위치를 정할 수 있어요(예: <code>@199.5 いのちに</code>).</p>
+      <div class="row">
+        <label>MIDI 파일 <input id="midiFile" type="file" accept=".mid,.midi,audio/midi"></label>
+        <label>트랙 <select id="midiTrack" disabled></select></label>
+        <label title="원곡 반주와 맞추려면 켜 두세요"><input id="midiIntro" type="checkbox" checked> 전주 길이 그대로</label>
+      </div>
+      <textarea id="midiLyrics" rows="6" aria-label="가사" placeholder="가사를 한 줄씩 적어 주세요 (한자·가나, 로마자, 한글 발음. 단어 사이는 띄어 쓰기)"></textarea>
+      <div class="row">
+        <button id="midiBtn" class="ghost" disabled>악보 만들기</button>
+        <span id="midiInfo" class="hint" role="status"></span>
+      </div>
+    </details>
+    <details>
+      <summary>다른 프로그램의 악보 열기·저장</summary>
+      <div class="row">
+        <label>열기 <input id="scoreFile" type="file" accept=".ustx,.ust,.musicxml,.xml,.json,.toki"></label>
+        <button class="ghost" data-save="toki">프로젝트 저장</button>
+        <button class="ghost" data-save="ustx">ustx</button>
+        <button class="ghost" data-save="mid">MIDI</button>
+        <button class="ghost" data-save="txt">텍스트</button>
+      </div>
+      <p class="hint">OpenUtau(ustx), UTAU(ust), MusicXML, 토키 프로젝트를 열 수 있어요.</p>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <label>템포 <input id="tempo" type="number" min="20" max="400" step="0.1" value="110"></label>
+      <label>예시 <select id="preset"></select></label>
+      <label>키 <select id="transpose"><option value="0">그대로</option><option value="-12">한 옥타브 ↓</option><option value="-2">온음 ↓</option><option value="-1">반음 ↓</option><option value="1">반음 ↑</option><option value="2">온음 ↑</option><option value="12">한 옥타브 ↑</option></select></label>
+      <label>음질 <select id="steps"><option value="10">빠르게</option><option value="20" selected>보통</option><option value="40">고품질</option></select></label>
+      <label title="빠르게 부르는 부분에서도 발음이 뭉개지지 않게 해요"><input id="clamp" type="checkbox" checked> 발음 또렷하게</label>
+      <label title="길게 끄는 음에 은은한 떨림을 넣어요"><input id="vibrato" type="checkbox" checked> 긴 음 비브라토</label>
+    </div>
+    <div class="row lyricrow">
+      <input id="lyricLine" aria-label="가사 한 줄" placeholder="가사 한 줄 (예: ぼくらは いのちに, 보쿠라와 이노치니)">
+      <button id="splitBtn" class="ghost">음표에 나눠 넣기</button>
+    </div>
+    <div class="row tools" role="toolbar" aria-label="편집">
+      <button id="undoBtn" class="ghost" title="되돌리기 (Ctrl+Z)">되돌리기</button>
+      <button id="redoBtn" class="ghost" title="다시 하기 (Ctrl+Shift+Z)">다시 하기</button>
+      <button id="addBtn" class="ghost">+ 음표</button>
+      <button id="restBtn" class="ghost">+ 쉼표</button>
+      <button id="delBtn" class="ghost" disabled>삭제</button>
+      <label>칸 <select id="grid"><option value="1">1박</option><option value="0.5">1/2</option><option value="0.25" selected>1/4</option><option value="0.125">1/8</option><option value="0.33333333">셋잇단</option><option value="0.16666667">여섯잇단</option><option value="0">자유</option></select></label>
+      <button id="zoomOut" class="ghost" aria-label="축소">−</button>
+      <button id="zoomIn" class="ghost" aria-label="확대">+</button>
+      <button id="zoomFit" class="ghost">전체</button>
+    </div>
+    <div id="rollWrap"><input id="lyricEdit" aria-label="가사. Enter로 마치고 Tab으로 다음 음표" hidden>
+    <div id="rollBox"><div id="rollSpacer"><canvas id="roll" tabindex="0" role="application" aria-label="피아노롤. 왼쪽·오른쪽 화살표로 음표를 고르고, 위·아래 화살표로 음높이, Alt와 화살표로 길이, Ctrl과 화살표로 위치를 바꿔요. Enter는 가사, Delete는 삭제예요." aria-describedby="rollStatus"></canvas></div></div></div>
+    <p class="hint" id="rollStatus" role="status"></p>
+    <p class="hint">빈 곳을 두 번 누르면 음표가 생기고, 음표를 두 번 누르면 가사를 바꿔요. 끌면 음높이와 위치가, 오른쪽 끝을 끌면 길이가 바뀌어요. 빈 곳에서 끌면 여러 개를 골라요.</p>
+    <fieldset id="expr" disabled>
+      <legend>고른 음표의 표현</legend>
+      <div id="exprRows"></div>
+    </fieldset>
+    <div class="row">
+      <button id="previewBtn" class="ghost">멜로디 듣기</button>
+      <button id="shareBtn" class="ghost">공유 링크 복사</button>
+    </div>
+    <details id="tableBox">
+      <summary>표로 보기</summary>
+      <table id="notes">
+        <thead><tr><th scope="col">가사</th><th scope="col">음</th><th scope="col">박자</th><th scope="col"><span class="sr">삭제</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </details>
+    <details>
+      <summary>텍스트로 한꺼번에 입력</summary>
+      <p class="hint">한 줄에 음표 하나씩, 가사·음·박자 순서로 적어요. 예: <code>こ G4 0.5</code> · 쉼표는 <code>- 0 1</code> · 표현은 뒤에 <code>vib=0.3 dyn=-2</code></p>
+      <textarea id="text" rows="8" aria-label="악보 텍스트"></textarea>
+      <button id="applyText" class="ghost">적용</button>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <button id="singBtn" disabled>부르기</button>
+      <button id="stopBtn" class="ghost" hidden>멈추기</button>
+      <span id="status" role="status" aria-live="polite"></span>
+    </div>
+    <progress id="singBar" max="1" value="0" hidden aria-label="노래 만드는 중"></progress>
+    <audio id="player" controls hidden></audio>
+    <a id="download" hidden download="hinase_toki.wav">WAV로 저장</a>
+    <details id="phraseBox" hidden>
+      <summary>구절 다시 부르기</summary>
+      <p class="hint">마음에 들지 않는 구절만 새로 불러요. 바꾸지 않은 구절은 그대로 남아요.</p>
+      <ol id="phraseList"></ol>
+    </details>
+    <details id="mixBox" hidden>
+      <summary>반주와 합치기</summary>
+      <div class="row">
+        <label>반주 파일 <input id="backFile" type="file" accept="audio/*"></label>
+        <label>반주 시작 (초) <input id="backOffset" type="number" step="0.01" value="0"></label>
+        <label>목소리 <input id="voiceLevel" type="range" min="-12" max="6" step="0.5" value="0"></label>
+        <label>반주 <input id="backLevel" type="range" min="-24" max="6" step="0.5" value="-4"></label>
+        <label title="반주 음색 다듬기, 말소리 자리 비우기, 노래할 때 반주 살짝 낮추기, 스테레오 넓히기, 음량 맞추기 (-15 LUFS)"><input id="coverMix" type="checkbox" checked> 커버 믹스</label>
+      </div>
+      <div class="row"><button id="mixBtn" class="ghost" disabled>합치기</button><span id="mixInfo" class="hint" role="status"></span></div>
+      <audio id="mixPlayer" controls hidden></audio>
+      <a id="mixDownload" hidden download="hinase_toki_mix.wav">합친 노래 저장 (WAV)</a>
+    </details>
+  </section>
+
+  <section class="card" id="stageCard" hidden>
+    <h2>토키의 무대</h2>
+    <p class="hint">방금 부른 노래에 맞춰 토키가 움직이고 입을 맞춰요.</p>
+    <iframe id="stage" title="토키 아바타" loading="lazy"></iframe>
+    <div class="row"><button id="stageBtn">무대에서 부르기</button></div>
+  </section>
+
+  <section class="card" id="videoCard" hidden>
+    <h2>가사 영상 만들기</h2>
+    <p class="hint">방금 부른 노래에 가사가 흐르는 영상을 만들어요. 영상도 이 기기 안에서 만들어져요.</p>
+    <div class="row">
+      <label>제목 <input id="vTitle" placeholder="노래 제목" maxlength="40"></label>
+      <label>부제 <input id="vSub" value="히나세 토키" maxlength="40"></label>
+      <label>화질 <select id="vSize"><option value="720">720p</option><option value="1080" selected>1080p</option></select></label>
+    </div>
+    <details>
+      <summary>화면 가사·번역 바꾸기 (선택)</summary>
+      <p class="hint">이 노래는 <b id="vLines">0</b>줄로 나뉘어요. 줄 수를 맞춰 적으면 그 줄이 화면에 그대로 나와요(한자 가사 등). 비워 두면 악보의 가사가 나와요.</p>
+      <textarea id="vLyrics" rows="5" aria-label="화면 가사"></textarea>
+      <textarea id="vTrans" rows="5" aria-label="번역" placeholder="번역 (한 줄씩, 선택)"></textarea>
+    </details>
+    <canvas id="vCanvas" class="video" role="img" aria-label="가사 영상 미리보기"></canvas>
+    <div class="row">
+      <button id="videoBtn">영상 만들기</button>
+      <button id="vStop" class="ghost" hidden>멈추기</button>
+      <span id="vStatus" class="hint" role="status"></span>
+    </div>
+    <progress id="vBar" max="1" value="0" hidden aria-label="영상 만드는 중"></progress>
+    <video id="vPlayer" controls playsinline hidden></video>
+    <a id="vDownload" hidden>영상 저장</a>
+  </section>
+</main>
+<footer>
+  <p>히나세 토키의 목소리는 직접 녹음한 노래로 학습시킨 AI 모델이에요. 만든 노래는 비상업적으로만 쓸 수 있고, "히나세 토키"를 함께 적어 주세요. <a href="LICENSE.md">라이선스</a></p>
+</footer>
+<script type="module" src="js/app.js?v=18"></script>
+</body>
+</html>
