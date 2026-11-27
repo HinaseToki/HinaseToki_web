@@ -117,7 +117,7 @@ export function setLyrics(notes, from, syllables) {
 
 // Scores from links, files or storage are untrusted: keep only well-formed notes.
 export function clean(list) {
-  if (!Array.isArray(list)) throw new Error('악보 형식이 아니에요');
+  if (!Array.isArray(list)) throw new Error('악보 형식이 아닙니다');
   return list.slice(0, 5000).filter(n => n && typeof n === 'object').map(n => {
     const e = {};
     for (const k of EXPRESSION) if (n.expr && Number.isFinite(+n.expr[k]) && n.expr[k] !== null && k in n.expr) e[k] = clip(+n.expr[k], ...RANGE[k]);
@@ -145,7 +145,7 @@ export function fromText(text, reading = x => x) {
     const [ly, nt, b, ...kv] = l.split(/\s+/);
     if (ly === '-' || ly === 'R') return rest(+b || 1);
     const midi = parseNote(nt);
-    if (midi == null) throw new Error(`"${nt ?? ''}"는 음 이름으로 읽을 수 없어요. C4, G#4처럼 적어 주세요`);
+    if (midi == null) throw new Error(`"${nt ?? ''}"은(는) 음 이름이 아닙니다. C4, G#4 형식으로 입력해 주십시오`);
     const expr = Object.fromEntries(kv.map(x => x.split('=')).filter(([k]) => EXPRESSION.includes(k)).map(([k, v]) => [k, +v]));
     return { lyric: reading(ly), midi, beats: +b || 1, ...(Object.keys(expr).length ? { expr } : {}) };
   }));

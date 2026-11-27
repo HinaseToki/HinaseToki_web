@@ -21,10 +21,10 @@ export async function dictionary() {
   const r = await fetch(KUROMOJI[0], { integrity: KUROMOJI[1], mode: 'cors' });
   if (!r.ok) throw new Error(`${KUROMOJI[0]}: ${r.status}`);
   const s = document.createElement('script'); s.src = URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
-  await new Promise((yes, no) => { s.onload = yes; s.onerror = () => no(new Error('한자 사전을 열지 못했어요')); document.head.append(s); });
+  await new Promise((yes, no) => { s.onload = yes; s.onerror = () => no(new Error('한자 사전을 열 수 없습니다')); document.head.append(s); });
   const open = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (m, u, ...a) { return open.call(this, m, String(u).replace(/^https:\/(?!\/)/, 'https://'), ...a); };
   try {
-    return await new Promise((yes, no) => globalThis.kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((e, t) => e ? no(new Error('한자 사전을 받지 못했어요')) : yes(t)));
+    return await new Promise((yes, no) => globalThis.kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((e, t) => e ? no(new Error('한자 사전을 내려받지 못했습니다')) : yes(t)));
   } finally { XMLHttpRequest.prototype.open = open; }
 }

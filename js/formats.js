@@ -38,7 +38,7 @@ export function importUstx(text) {
     else if (inNotes && m[1].length <= 2 && !item && depth < indent) inNotes = false;
   }
   done();
-  if (!list.length) throw new Error('이 ustx 파일에는 음표가 없어요');
+  if (!list.length) throw new Error('이 ustx 파일에는 음표가 없습니다');
   return { tempo, notes: fromTicks(list, tpb) };
 }
 
@@ -90,14 +90,14 @@ export function importUst(text) {
     if (!(beats > 0)) continue;
     out.push(/^(R|r|)$/.test(lyric) ? rest(beats) : { lyric: lyric.split(' ').pop(), midi: +f.NoteNum, beats });       // "a か" (VCV) -> か
   }
-  if (!out.some(n => n.midi != null)) throw new Error('이 ust 파일에는 음표가 없어요');
+  if (!out.some(n => n.midi != null)) throw new Error('이 ust 파일에는 음표가 없습니다');
   return { tempo, notes: clean(tidy(out)) };
 }
 
 // ---------------------------------------------------------------- MusicXML
 export function importMusicXml(text) {
   const part = /<part\b[^>]*>([\s\S]*?)<\/part>/.exec(text)?.[1];
-  if (!part) throw new Error('MusicXML 파일이 아니에요');
+  if (!part) throw new Error('MusicXML 파일이 아닙니다');
   const tag = (s, t) => new RegExp(`<${t}\\b[^>]*>([\\s\\S]*?)</${t}>`).exec(s)?.[1]?.trim();
   const tempo = +(/<sound\b[^>]*\btempo="([\d.]+)"/.exec(text)?.[1] ?? tag(text, 'per-minute') ?? 120);
   const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -117,7 +117,7 @@ export function importMusicXml(text) {
     const lyric = tag(tag(n, 'lyric') ?? '', 'text');
     out.push({ lyric: lyric ? unescape(lyric) : 'ー', midi, beats });
   }
-  if (!out.some(n => n.midi != null)) throw new Error('이 MusicXML 파일에는 음표가 없어요');
+  if (!out.some(n => n.midi != null)) throw new Error('이 MusicXML 파일에는 음표가 없습니다');
   return { tempo, notes: clean(tidy(out)) };
 }
 
@@ -138,7 +138,7 @@ export function exportMidi(notes, tempo) {
 export const writeProject = ({ tempo, notes, ...rest }) => JSON.stringify({ app: 'hinase-toki', version: 1, tempo, notes, ...rest }, null, 1);
 export function readProject(text) {
   let d; try { d = JSON.parse(text); } catch { d = null; }
-  if (d?.app !== 'hinase-toki') throw new Error('토키 프로젝트 파일이 아니에요');
+  if (d?.app !== 'hinase-toki') throw new Error('토키 프로젝트 파일이 아닙니다');
   return { ...d, tempo: +d.tempo || 110, notes: clean(d.notes) };
 }
 
@@ -148,6 +148,6 @@ export async function readScoreFile(file) {
   if (name.endsWith('.ust')) { const t = await text(); return importUst(t.includes('�') ? await text('shift_jis') : t); }
   if (/\.(musicxml|xml)$/.test(name)) return importMusicXml(await text());
   if (name.endsWith('.json') || name.endsWith('.toki')) return readProject(await text());
-  throw new Error('읽을 수 있는 형식은 ustx, ust, musicxml, toki(json)예요');
+  throw new Error('지원 형식은 ustx, ust, musicxml, toki(json)입니다');
 }
 export { toText };

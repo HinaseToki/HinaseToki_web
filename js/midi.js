@@ -17,9 +17,9 @@ const pyG = x => String(parseFloat(x.toPrecision(6)));
 export function parseMidi(buf) {
   const v = new DataView(buf), u8 = new Uint8Array(buf);
   const str = (o, n) => String.fromCharCode(...u8.slice(o, o + n));
-  if (str(0, 4) !== 'MThd') throw new Error('MIDI 파일이 아니에요');
+  if (str(0, 4) !== 'MThd') throw new Error('MIDI 파일이 아닙니다');
   const hlen = v.getUint32(4), ntr = v.getUint16(10), tpb = v.getUint16(12);
-  if (tpb & 0x8000) throw new Error('이 MIDI 파일의 시간 형식(SMPTE)은 지원하지 않아요');
+  if (tpb & 0x8000) throw new Error('이 MIDI 파일의 시간 형식(SMPTE)은 지원하지 않습니다');
   let o = 8 + hlen;
   let tracks = []; const tempos = [];
   for (let t = 0; t < ntr && o + 8 <= u8.length; t++) {
@@ -167,13 +167,13 @@ export function alignLines(notes, lines, gap = .5, unit = .25) {
   const parts = [];
   lines.forEach((l, i) => {
     const m = /^@([\d.]+)\s*(.*)$/.exec(l), at = m ? +m[1] : -Infinity;
-    if (m && i && at <= parts[parts.length - 1].at) throw new Error(`${i + 1}번째 줄의 @${m[1]}은 앞의 고정 위치보다 뒤여야 해요`);
+    if (m && i && at <= parts[parts.length - 1].at) throw new Error(`${i + 1}번째 줄의 @${m[1]}은 앞의 고정 위치보다 뒤여야 합니다`);
     if (m || !i) parts.push({ at, lines: [m ? m[2] : l] }); else parts[parts.length - 1].lines.push(l);
   });
   const out = [], info = { phrases: 0, lines: lines.length, groups: 0, cost: 0, sung_notes: 0 };
   parts.forEach((p, k) => {
     const end = parts[k + 1]?.at ?? Infinity, mine = notes.filter(n => n[1] >= p.at - 1e-6 && n[1] < end - 1e-6);
-    if (!mine.length) throw new Error(`@${p.at} 뒤에는 멜로디가 없어요`);
+    if (!mine.length) throw new Error(`@${p.at} 이후에는 멜로디가 없습니다`);
     const r = alignFree(mine, p.lines, gap, unit);
     out.push(...r.sung);
     for (const key of ['phrases', 'groups', 'cost', 'sung_notes']) info[key] += r.info[key];

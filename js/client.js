@@ -11,7 +11,7 @@ export class SynthClient {
         if (m.error) w.no(m.error.name === 'AbortError' ? new DOMException(m.error.message, 'AbortError') : new Error(m.error.message)); else w.yes(m.result);
       }
     };
-    port.onerror = e => { for (const w of this.waiting.values()) w.no(new Error(e.message || '작업자를 시작하지 못했어요')); this.waiting.clear(); };
+    port.onerror = e => { for (const w of this.waiting.values()) w.no(new Error(e.message || '합성 작업을 시작하지 못했습니다')); this.waiting.clear(); };
   }
   call(message, on = {}, signal) {
     const id = this.next++;

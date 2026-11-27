@@ -29,7 +29,7 @@ function loadScore() {
       return clean(d.notes);
     }
     const saved = JSON.parse(localStorage.getItem('toki-score') || 'null');
-    if (saved?.notes?.length) { $('tempo').value = saved.tempo || 110; return clean(saved.notes); }
+    if (saved?.notes?.length) { $('tempo').value = Math.min(400, Math.max(20, +saved.tempo || 110)); return clean(saved.notes); }
   } catch {}
   return fromPreset('こんにちは');
 }
@@ -91,8 +91,8 @@ $('lyricEdit').addEventListener('keydown', e => {
 $('lyricEdit').addEventListener('blur', () => { if (editing != null) endLyric(true); });
 
 // ---------------------------------------------------------------- expression of the selected notes
-const EXPR = { vib: ['비브라토', .05, '반음'], cents: ['음 미세조정', 1, '센트'], scoop: ['밀어 올리기', .1, '반음'], fall: ['떨어뜨리기', .1, '반음'],
-  dyn: ['세기', .5, 'dB'], br: ['숨소리', .5, 'dB'], gen: ['목소리 굵기', .05, ''], ten: ['긴장도', .5, 'dB'] };
+const EXPR = { vib: ['비브라토', .05, '반음'], cents: ['미세 음정', 1, '센트'], scoop: ['밀어 올림', .1, '반음'], fall: ['떨어뜨림', .1, '반음'],
+  dyn: ['세기', .5, 'dB'], br: ['숨소리', .5, 'dB'], gen: ['음색 굵기', .05, ''], ten: ['긴장도', .5, 'dB'] };
 let controls = [];
 function buildExpr() {
   $('exprRows').innerHTML = '';
@@ -106,7 +106,7 @@ function buildExpr() {
     l.append(label, s, o); $('exprRows').append(l);
   }
   const b = document.createElement('button');
-  b.className = 'ghost'; b.textContent = '표현 지우기'; b.type = 'button';
+  b.className = 'ghost'; b.textContent = '표현 초기화'; b.type = 'button';
   b.onclick = () => edit(Object.keys(EXPR).reduce((ns, k) => setExpr(ns, roll.selected, k, null), notes), roll.selected);
   $('exprRows').append(b);
 }
@@ -117,7 +117,7 @@ function showSelection() {
     const v = first?.expr?.[s.dataset.k]; s.value = v ?? 0; s.nextElementSibling.textContent = v ?? '기본';
   }
   $('rollStatus').textContent = !sel.length ? `음표 ${notes.filter(n => n.midi != null).length}개 · ${Math.round(totalBeats(notes) * 60 / tempoOf())}초`
-    : sel.length > 1 ? `음표 ${sel.length}개를 골랐어요` : `${first.lyric} · ${noteName(first.midi)} · ${Math.round(first.beats * 1000) / 1000}박 · ${Math.round(onsets(notes)[sel[0]] * 100) / 100}박째`;
+    : sel.length > 1 ? `음표 ${sel.length}개 선택됨` : `${first.lyric} · ${noteName(first.midi)} · ${Math.round(first.beats * 1000) / 1000}박 · ${Math.round(onsets(notes)[sel[0]] * 100) / 100}박째`;
 }
 
 // ---------------------------------------------------------------- table, text, tools
@@ -151,12 +151,13 @@ for (const k of Object.keys(PRESETS)) $('preset').add(new Option(k, k));
 $('preset').add(new Option('—', ''), 0); $('preset').value = '';
 $('preset').onchange = e => { if (e.target.value) replace(fromPreset(e.target.value)); };
 $('tempo').oninput = () => { save(); showSelection(); };
+$('tempo').onchange = () => { $('tempo').value = tempoOf(); save(); showSelection(); };   // 20-400, as sung
 // a whole lyric line, spread over the notes from the selected one on (extra syllables get new notes)
 // kanji in a lyric field: read first (the dictionary comes once), the reading shown so it can be corrected
 async function readKanji(id) {
   const f = $(id); if (!hasKanji(f.value)) return;
-  say('한자를 읽는 중… (처음 한 번은 사전 17MB를 받아요)');
-  try { f.value = (await Promise.all(f.value.split('\n').map(kanaOf))).join('\n'); say('한자를 가나로 바꿨어요. 읽기가 맞는지 확인해 주세요'); }
+  say('한자 읽기 변환 중… (최초 1회 사전 17MB 다운로드)');
+  try { f.value = (await Promise.all(f.value.split('\n').map(kanaOf))).join('\n'); say('한자를 가나로 변환했습니다. 읽기가 맞는지 확인해 주십시오'); }
   catch (e) { say(e.message); throw e; }
 }
 $('splitBtn').onclick = async () => { try { await readKanji('lyricLine'); } catch { return; } const ms = morae($('lyricLine').value); if (ms.length) edit(setLyrics(notes, roll.selected.size ? Math.min(...roll.selected) : 0, ms)); };
@@ -174,21 +175,21 @@ function beep(midi, start, dur) {
 }
 let melodyTones = [];
 $('previewBtn').onclick = () => {
-  if (melodyTones.length) { for (const o of melodyTones) o.stop(); melodyTones = []; $('previewBtn').textContent = '멜로디 듣기'; return; }
+  if (melodyTones.length) { for (const o of melodyTones) o.stop(); melodyTones = []; $('previewBtn').textContent = '멜로디 미리 듣기'; return; }
   ctx ??= new AudioContext();
   const beat = 60 / tempoOf(); let t = ctx.currentTime + .05;
   for (const n of notes) { if (n.midi != null) melodyTones.push(beep(n.midi, t, n.beats * beat)); t += n.beats * beat; }
   const last = melodyTones[melodyTones.length - 1];
-  if (last) { $('previewBtn').textContent = '멜로디 멈추기'; last.onended = () => { melodyTones = []; $('previewBtn').textContent = '멜로디 듣기'; }; }
+  if (last) { $('previewBtn').textContent = '멜로디 정지'; last.onended = () => { melodyTones = []; $('previewBtn').textContent = '멜로디 미리 듣기'; }; }
 };
 
 $('shareBtn').onclick = async () => {
   const bytes = new TextEncoder().encode(JSON.stringify({ tempo: tempoOf(), notes })); let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
   const url = location.href.split('#')[0] + '#' + btoa(bin);
-  if (url.length > 30000) { say('악보가 길어서 링크로 만들 수 없어요. "프로젝트 저장"으로 파일을 나눠 주세요'); return; }
+  if (url.length > 30000) { say('악보가 길어 링크를 만들 수 없습니다. "프로젝트 저장"으로 저장한 파일을 공유해 주십시오'); return; }
   window.history.replaceState(null, '', url);
-  try { await navigator.clipboard.writeText(url); say('공유 링크를 복사했어요'); }
-  catch { say('복사하지 못했어요. 주소창의 링크를 직접 복사해 주세요'); }
+  try { await navigator.clipboard.writeText(url); say('공유 링크를 복사했습니다'); }
+  catch { say('복사하지 못했습니다. 주소창의 링크를 직접 복사해 주십시오'); }
 };
 function saveFile(data, name, type) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = name; a.click();
@@ -202,7 +203,7 @@ for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => ({
 })[b.dataset.save]();
 $('scoreFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const r = await readScoreFile(f); $('tempo').value = r.tempo; replace(r.notes.map(n => n.midi == null ? n : { ...n, lyric: toHiragana(n.lyric) })); say(`${f.name}에서 음표 ${notes.filter(n => n.midi != null).length}개를 열었어요`); }
+  try { const r = await readScoreFile(f); $('tempo').value = r.tempo; replace(r.notes.map(n => n.midi == null ? n : { ...n, lyric: toHiragana(n.lyric) })); say(`${f.name}: 음표 ${notes.filter(n => n.midi != null).length}개를 불러왔습니다`); }
   catch (err) { say(err.message); }
   e.target.value = '';
 };
@@ -221,11 +222,12 @@ function makeClient() {
 const synth = makeClient();
 // which voice: a choice only where the site holds several (voices.json, written by python -m ai web)
 let voices = [], voiceBase = 'models/', loaded = false;
-const voiceName = () => voices.find(v => v.base === voiceBase)?.name;
+const voiceName = () => { const v = voices.find(v => v.base === voiceBase); return v?.label ?? v?.name; };
 async function chooseVoices() {
   try { voices = await (await fetch('voices.json', { cache: 'no-cache' })).json(); } catch { voices = []; }
-  if (!Array.isArray(voices) || voices.length < 2) { voices = []; return; }
-  $('voice').innerHTML = voices.map(v => `<option value="${v.base}">${v.name}${v.default ? ' (기본)' : ''}</option>`).join('');
+  if (!Array.isArray(voices)) voices = [];
+  if (voices.length < 2) { voiceBase = voices[0]?.base ?? 'models/'; return; }          // one voice: named, no choice
+  $('voice').innerHTML = voices.map(v => `<option value="${v.base}">${v.label ?? v.name}${v.default ? ' (기본)' : ''}</option>`).join('');
   let saved = null; try { saved = localStorage.getItem('toki-voice'); } catch {}
   voiceBase = voices.some(v => v.base === saved) ? saved : (voices.find(v => v.default) ?? voices[0]).base;
   $('voice').value = voiceBase; $('voicePick').hidden = false;
@@ -238,11 +240,11 @@ $('voice').onchange = () => {
 async function start() {
   $('loadBtn').disabled = true; $('loadBar').hidden = false; $('singBtn').disabled = true; $('voice').disabled = true;
   try {
-    const info = await synth.load(p => { $('loadBar').value = p; $('loadInfo').textContent = `목소리 데이터를 받는 중… ${Math.round(p * 100)}%`; },
+    const info = await synth.load(p => { $('loadBar').value = p; $('loadInfo').textContent = `음성 모델 다운로드 중… ${Math.round(p * 100)}%`; },
                                   voiceBase === 'models/' ? undefined : voiceBase);
-    controls = info.controls; buildExpr(); showSelection(); loaded = true; $('voice').disabled = false;
-    $('loadInfo').textContent = voices.length ? `준비됐어요 (${voiceName()})` : '준비됐어요'; $('loadBar').hidden = true; $('singBtn').disabled = false;
-  } catch (e) { $('loadInfo').textContent = '목소리 데이터를 받지 못했어요. 새로고침한 뒤 다시 시도해 주세요. (' + e.message + ')'; $('loadBtn').disabled = false; $('voice').disabled = false; $('loadBar').hidden = true; }
+    controls = info.controls; buildExpr(); showSelection(); loaded = true; $('voice').disabled = false; $('loadBtn').hidden = true;
+    $('loadInfo').textContent = voices.length ? `준비 완료 (${voiceName()})` : '준비 완료'; $('loadBar').hidden = true; $('singBtn').disabled = false;
+  } catch (e) { $('loadInfo').textContent = '음성 모델을 내려받지 못했습니다. 새로고침 후 다시 시도해 주십시오. (' + e.message + ')'; $('loadBtn').disabled = false; $('voice').disabled = false; $('loadBar').hidden = true; }
 }
 $('loadBtn').onclick = start;
 // already downloaded once: start right away
@@ -250,7 +252,7 @@ async function offer() {
   try {
     const m = await fetchManifest(voiceBase), all = Object.values(m.files).flat();
     const mb = Math.round(all.reduce((n, p) => n + p.size, 0) / 1e6);
-    $('loadInfo').textContent = `처음 한 번은 목소리 데이터(${mb}MB)를 내려받아요. 노래는 이 기기 안에서 만들어져요.`;
+    $('loadInfo').textContent = `최초 1회 음성 모델(${mb}MB)을 내려받습니다. 모든 합성은 이 기기에서 처리됩니다.`;
     const c = await caches.open(modelCache(m, voiceBase)), base = new URL(voiceBase, location.href).href;
     if ((await Promise.all(all.map(p => c.match(base + p.name)))).every(Boolean)) start();
   } catch {}
@@ -263,9 +265,9 @@ function warnings() {
   notes.forEach((n, i) => {
     if (n.midi == null) return;
     const m = morae(n.lyric).filter(x => !'っッー'.includes(x)).length;   // じっ is one note: the mora and its closure
-    if (m > 1) out.push(`${i + 1}번째 음표(${n.lyric})에 ${m}음절이 들어 있어요. 한 음표에 한 음절씩 넣으면 더 또렷해요`);
+    if (m > 1) out.push(`${i + 1}번째 음표(${n.lyric})에 ${m}음절이 들어 있습니다. 음표 하나에 한 음절씩 넣으면 발음이 더 명확합니다`);
     else if (n.beats * beat < (clampOn ? .1 : .2))      // "또렷하게" keeps short morae audible down to ~0.1 s
-      out.push(`${i + 1}번째 음표(${n.lyric})가 너무 짧아요 (${(n.beats * beat).toFixed(2)}초)`);
+      out.push(`${i + 1}번째 음표(${n.lyric})가 너무 짧습니다 (${(n.beats * beat).toFixed(2)}초)`);
   });
   return out;
 }
@@ -285,17 +287,17 @@ async function sing() {
     $('player').src = songUrl; $('player').hidden = false; $('player').play().catch(() => {});
     $('download').href = songUrl; $('download').hidden = false;
     song = { audio: r.audio, sampleRate: r.sampleRate, notes: mine, tempo, phrases: r.phrases };
-    showPhrases(); showVideoCard(); $('mixBox').hidden = false; showStage();
+    showPhrases(); showVideoCard(); $('mixBox').hidden = false;
     const w = warnings();
     say(w.length ? w.slice(0, 3).join(' / ') + (w.length > 3 ? ` 외 ${w.length - 3}개` : '') : '');
-  } catch (e) { say(e.name === 'AbortError' ? '멈췄어요' : e.message); if (e.name !== 'AbortError') console.error(e); }
+  } catch (e) { say(e.name === 'AbortError' ? '중지했습니다' : e.message); if (e.name !== 'AbortError') console.error(e); }
   $('singBtn').disabled = false; $('stopBtn').hidden = true; $('singBar').hidden = true; job = null;
 }
 function showPhrases() {
   $('phraseBox').hidden = false; $('phraseList').innerHTML = '';
   song.phrases.forEach((p, i) => {
     const li = document.createElement('li'), b = document.createElement('button'), t = document.createElement('button');
-    t.className = b.className = 'ghost'; t.textContent = '듣기'; b.textContent = '다시 부르기';
+    t.className = b.className = 'ghost'; t.textContent = '재생'; b.textContent = '재생성';
     li.append(`${p.text.slice(0, 24)}${p.text.length > 24 ? '…' : ''} `, t, b);
     t.onclick = () => { $('player').currentTime = Math.max(0, LEAD + p.start - .1); $('player').play(); };
     b.onclick = () => { if (job) return; takes = { ...takes, [i]: (takes[i] ?? 0) + 1 }; sing(); };
@@ -321,7 +323,7 @@ $('backFile').onchange = async e => {
     const b = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(await f.arrayBuffer());
     back = Array.from({ length: Math.min(2, b.numberOfChannels) }, (_, i) => b.getChannelData(i));
     $('mixBtn').disabled = false; $('mixInfo').textContent = `${f.name} (${Math.round(b.duration)}초)`;
-  } catch { $('mixInfo').textContent = '이 파일은 소리로 열 수 없어요'; }
+  } catch { $('mixInfo').textContent = '오디오 파일로 열 수 없습니다'; }
 };
 $('mixBtn').onclick = () => {
   if (!song || !back) return;
@@ -334,19 +336,7 @@ $('mixBtn').onclick = () => {
   if (mixUrl) URL.revokeObjectURL(mixUrl);
   mixUrl = URL.createObjectURL(toWav([L, R], 44100));
   $('mixPlayer').src = mixUrl; $('mixPlayer').hidden = false; $('mixDownload').href = mixUrl; $('mixDownload').hidden = false;
-  $('mixInfo').textContent = '합쳤어요. 가사 영상과 무대에도 이 소리가 들어가요'; showVideoCard();
-};
-
-// ---------------------------------------------------------------- her stage (only where the avatar is installed)
-let stageThere = null;
-async function showStage() {
-  stageThere ??= await fetch('avatar/index.html', { method: 'HEAD' }).then(r => r.ok, () => false);
-  $('stageCard').hidden = !stageThere;
-  if (stageThere && !$('stage').src) $('stage').src = 'avatar/index.html?embed';
-}
-$('stageBtn').onclick = () => {
-  const audio = toWav(song.mix ?? song.audio, song.sampleRate);
-  $('stage').contentWindow.postMessage({ type: 'toki-song', audio, score: toText(song.notes), tempo: song.tempo, offset: LEAD }, location.origin);
+  $('mixInfo').textContent = '믹스를 완료했습니다. 가사 영상에도 믹스한 음원을 사용합니다'; showVideoCard();
 };
 
 // ---------------------------------------------------------------- MIDI
@@ -356,7 +346,7 @@ $('midiFile').onchange = async e => {
   try {
     midi = parseMidi(await f.arrayBuffer());
     const list = trackList(midi).filter(t => t.channel !== 9);           // channel 10: drums
-    if (!list.length) throw new Error('음표가 있는 트랙이 없어요');
+    if (!list.length) throw new Error('음표가 있는 트랙이 없습니다');
     $('midiTrack').innerHTML = '';
     for (const t of list) $('midiTrack').add(new Option(`${t.track}. ${t.name || '(이름 없음)'} · ${t.notes}음 · ${noteName(t.low)}~${noteName(t.high)}`, t.track));
     pickTrack(list); $('midiTrack').disabled = false; $('midiBtn').disabled = false;
@@ -374,21 +364,21 @@ function pickTrack(list) {
 }
 $('midiLyrics').addEventListener('change', () => { if (midi) pickTrack(trackList(midi).filter(t => t.channel !== 9)); });
 $('midiBtn').onclick = async () => {
-  if (hasKanji($('midiLyrics').value)) { try { await readKanji('midiLyrics'); } catch { return; } $('midiInfo').textContent = '한자를 가나로 바꿨어요. 읽기를 확인하고 한 번 더 눌러 주세요'; return; }
+  if (hasKanji($('midiLyrics').value)) { try { await readKanji('midiLyrics'); } catch { return; } $('midiInfo').textContent = '한자를 가나로 변환했습니다. 읽기를 확인한 후 다시 눌러 주십시오'; return; }
   const lines = $('midiLyrics').value.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
     const [, pin = '', text] = /^(@[\d.]+\s*)?(.*)$/.exec(l);
     return pin + toHiragana(particles(text)).replace(/[\s「」『』、。!?！？,.]/g, '');
   });
-  if (!lines.length) { $('midiInfo').textContent = '가사를 한 줄 이상 적어 주세요'; return; }
+  if (!lines.length) { $('midiInfo').textContent = '가사를 한 줄 이상 입력해 주십시오'; return; }
   const { bpm, notes: mel, tempoChanges } = melody(midi, +$('midiTrack').value);
-  if (!mel.length) { $('midiInfo').textContent = '이 트랙에는 멜로디가 없어요'; return; }
+  if (!mel.length) { $('midiInfo').textContent = '이 트랙에는 멜로디가 없습니다'; return; }
   try {
     const { sung, info } = alignLines(mel, lines);
-    if (!sung.length) { $('midiInfo').textContent = '가사를 멜로디에 맞추지 못했어요. 다른 트랙을 골라 보세요'; return; }
+    if (!sung.length) { $('midiInfo').textContent = '가사를 멜로디에 맞추지 못했습니다. 다른 트랙을 선택해 주십시오'; return; }
     $('tempo').value = Math.round(bpm * 1000) / 1000;
     replace(clean(toNotes(sung, Infinity, $('midiIntro').checked ? 0 : null)));
-    $('midiInfo').textContent = `가사 ${info.lines}줄을 멜로디 ${info.phrases}구간에 맞춰 음표 ${info.sung_notes}개를 만들었어요`
-      + (tempoChanges ? ` (템포가 ${tempoChanges}번 바뀌는 곡이라 음 길이에 반영했어요)` : '');
+    $('midiInfo').textContent = `가사 ${info.lines}줄을 멜로디 ${info.phrases}구간에 맞추어 음표 ${info.sung_notes}개를 생성했습니다`
+      + (tempoChanges ? ` (템포가 ${tempoChanges}번 바뀌는 곡이므로 음 길이에 반영했습니다)` : '');
   } catch (e) { $('midiInfo').textContent = e.message; }
 };
 
@@ -398,8 +388,8 @@ const userLines = id => { const v = $(id).value.split('\n').map(l => l.trim()); 
 function videoOptions() {
   const n = songLines(song.notes, song.tempo).length, shown = userLines('vLyrics'), tr = userLines('vTrans');
   const notes = [];
-  if (shown.length && shown.length !== n) notes.push(`화면 가사가 ${shown.length}줄이라 ${n}줄과 달라서 악보의 가사를 써요`);
-  if (tr.length && tr.length !== n) notes.push(`번역이 ${tr.length}줄이라 ${n}줄과 달라서 넣지 않아요`);
+  if (shown.length && shown.length !== n) notes.push(`화면 가사가 ${shown.length}줄로 ${n}줄과 달라 악보의 가사를 사용합니다`);
+  if (tr.length && tr.length !== n) notes.push(`번역이 ${tr.length}줄로 ${n}줄과 달라 표시하지 않습니다`);
   return { opts: { title: $('vTitle').value.trim(), subtitle: $('vSub').value.trim(),
     shown: shown.length === n ? shown : null, translation: tr.length === n ? tr : null }, notes };
 }
@@ -427,16 +417,16 @@ $('videoBtn').onclick = async () => {
   const t0 = performance.now();
   try {
     const r = await makeVideo($('vCanvas'), song, { ...opts, height: +$('vSize').value, signal: videoJob.signal,
-      onProgress: p => { $('vBar').value = p; $('vStatus').textContent = `영상 만드는 중… ${Math.round(p * 100)}%`; } });
+      onProgress: p => { $('vBar').value = p; $('vStatus').textContent = `영상 생성 중… ${Math.round(p * 100)}%`; } });
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     videoUrl = URL.createObjectURL(r.blob);
     $('vPlayer').src = videoUrl; $('vPlayer').hidden = false; $('vCanvas').hidden = true;
     const name = (opts.title || 'hinase_toki').replace(/[\\/:*?"<>|]/g, '_');
     $('vDownload').href = videoUrl; $('vDownload').download = `${name}.${r.ext}`;
     $('vDownload').textContent = `영상 저장 (${r.ext.toUpperCase()}, ${(r.blob.size / 1e6).toFixed(1)}MB)`; $('vDownload').hidden = false;
-    $('vStatus').textContent = `다 만들었어요 (${Math.round((performance.now() - t0) / 1000)}초 걸렸어요)`;
+    $('vStatus').textContent = `영상 생성 완료 (${Math.round((performance.now() - t0) / 1000)}초 소요)`;
   } catch (e) {
-    $('vStatus').textContent = e.name === 'AbortError' ? '멈췄어요' : '영상을 만들지 못했어요: ' + e.message;
+    $('vStatus').textContent = e.name === 'AbortError' ? '중지했습니다' : '영상을 생성하지 못했습니다: ' + e.message;
     if (e.name !== 'AbortError') console.error(e);
   }
   $('videoBtn').disabled = false; $('vStop').hidden = true; $('vBar').hidden = true; videoJob = null;

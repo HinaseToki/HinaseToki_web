@@ -260,7 +260,7 @@ class Scene {
 }
 
 // ---------------------------------------------------------------- encoding
-const abortError = () => new DOMException('멈췄어요', 'AbortError');
+const abortError = () => new DOMException('중지했습니다', 'AbortError');
 const tick = () => new Promise(r => setTimeout(r));
 
 // The song's channels (the mix with the backing when there is one) with the title cards' silence around them.
@@ -329,7 +329,7 @@ async function withWebCodecs(scene, pcm, sr, fps, { onProgress, signal }) {
 async function withRecorder(scene, pcm, sr, fps, { onProgress, signal }) {
   const type = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm']
     .find(t => window.MediaRecorder?.isTypeSupported(t));
-  if (!type) throw new Error('이 브라우저는 영상을 만들 수 없어요. 최신 Chrome이나 Safari에서 열어 주세요');
+  if (!type) throw new Error('이 브라우저에서는 영상을 만들 수 없습니다. 최신 Chrome 또는 Safari를 사용해 주십시오');
   const ctx = new AudioContext({ sampleRate: sr });
   const buf = ctx.createBuffer(pcm.length, pcm[0].length, sr); pcm.forEach((c, k) => buf.copyToChannel(c, k));
   const src = ctx.createBufferSource(), dest = ctx.createMediaStreamDestination();
@@ -359,7 +359,7 @@ async function withRecorder(scene, pcm, sr, fps, { onProgress, signal }) {
 export async function makeVideo(canvas, song, { title = '', subtitle = '', shown = null, translation = null,
   height = 1080, fps = 30, onProgress, signal } = {}) {
   const lines = songLines(song.notes, song.tempo);
-  if (!lines.length) throw new Error('부른 음표가 없어요');
+  if (!lines.length) throw new Error('부른 음표가 없습니다');
   canvas.height = height; canvas.width = Math.round(height * 16 / 9 / 2) * 2;
   const scene = new Scene(canvas, { lines, duration: soundOf(song)[0].length / song.sampleRate, title, subtitle, shown, translation });
   const pcm = padded(soundOf(song), song.sampleRate);

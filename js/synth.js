@@ -6,7 +6,7 @@ import { FT, HOP, PAD, SR, VOWELS, addVibrato, centerNotes, clampDurations, dyna
 
 export const LEAD = 0.3;                       // silence before the first note of the song
 const lastVowel = ph => { const v = ph.findLast(x => VOWELS.has(x) && !['N', 'cl', 'AP', 'SP'].includes(x)); return v?.slice(-1); };
-const aborted = signal => { if (signal?.aborted) throw new DOMException('멈췄어요', 'AbortError'); };
+const aborted = signal => { if (signal?.aborted) throw new DOMException('중지했습니다', 'AbortError'); };
 
 // One cache per voice and model build (manifest.version): a new model never mixes with parts of the old one,
 // and that voice's old build is dropped once the new one is in use. Other voices (voices/<name>/) keep theirs.
@@ -75,7 +75,7 @@ export class Synth {
       if (this.dict.has(one)) out.push(...this.dict.get(one));
       else if (one === 'っ' || one === 'ッ') out.push('cl');
       else if (one === 'ー') out.push(lastVowel(out) ?? prevVowel);      // long vowel: repeat the last vowel
-      else throw new Error(`"${one}"은(는) 읽을 수 없어요. 가사는 히라가나나 가타카나, 한글 발음으로 적어 주세요`);
+      else throw new Error(`"${one}"은(는) 읽을 수 없습니다. 가사는 히라가나, 가타카나 또는 한글 발음으로 입력해 주십시오`);
       i++;
     }
     return out;
@@ -94,7 +94,7 @@ export class Synth {
       const p = n.lyric === 'AP' ? ['AP'] : n.lyric ? this.kanaToPhonemes(n.lyric, prev) : ['SP'];
       prev = lastVowel(p) ?? prev;
       const k = p.findIndex(x => VOWELS.has(x));
-      if (k < 0) throw new Error(`"${n.lyric}"에는 부를 모음이 없어요`);
+      if (k < 0) throw new Error(`"${n.lyric}"에는 모음이 없습니다`);
       if (i) { words[words.length - 1].push(...p.slice(0, k)); words.push(p.slice(k)); } else words[0].push(...p.slice(k));
       const seq = i ? p : p.slice(k);
       ph.push(...seq); phNote.push(...seq.map(() => i));
@@ -150,15 +150,15 @@ export class Synth {
   // A phrase that did not change since the last time is not sung again; takes {phrase: n} asks for another take.
   async sing(notes, { tempo = 110, steps = 20, varSteps = 10, clamp = true, vibrato = true, takes = {}, onStage, signal } = {}) {
     notes = notes.map(n => ({ lyric: String(n.lyric ?? '').trim(), midi: n.midi ?? null, beats: Math.max(1 / 64, +n.beats || 1), expr: n.expr ?? {} }));
-    if (!notes.some(n => n.midi != null)) throw new Error('부를 음표가 없어요. 음표를 하나 이상 넣어 주세요');
+    if (!notes.some(n => n.midi != null)) throw new Error('부를 음표가 없습니다. 음표를 하나 이상 입력해 주십시오');
     const empty = notes.findIndex(n => n.midi != null && !n.lyric);
-    if (empty >= 0) throw new Error(`${empty + 1}번째 음표에 가사가 없어요`);
+    if (empty >= 0) throw new Error(`${empty + 1}번째 음표에 가사가 없습니다`);
     tempo = Math.min(400, Math.max(20, +tempo || 110));
     const beat = 60 / tempo, { phrases: list, beats } = phrases(notes, beat);
     const out = new Float32Array(Math.ceil((LEAD + beats * beat + 0.6) * SR)), info = [], used = new Map();
     for (let i = 0; i < list.length; i++) {
       aborted(signal);
-      onStage?.(`부르는 중… (${i + 1}/${list.length})`, i / list.length);
+      onStage?.(`노래 생성 중… (${i + 1}/${list.length})`, i / list.length);
       const { start, notes: ns } = list[i];
       const key = JSON.stringify([ns, beat, steps, varSteps, clamp, vibrato, takes[i] ?? 0]);
       const r = this.rendered.get(key) ?? used.get(key) ?? await this.singPhrase(ns, beat, { steps, varSteps, clamp, vibrato, signal });
