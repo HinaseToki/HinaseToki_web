@@ -43,7 +43,7 @@
    },
    {
     "name": "acoustic.onnx.02",
-    "size": 86807536
+    "size": 86812087
    }
   ],
   "vocoder.onnx": [
@@ -56,5 +56,5 @@
  "phonemes": "phonemes.json",
  "dictionary": "dictionary-ja.txt",
  "depth": 0.6,
- "version": "492b03e983b8"
+ "version": "e7fc1eba5706"
 }
