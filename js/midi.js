@@ -42,7 +42,7 @@ export function parseMidi(buf) {
       } else if (status === 0xf0 || status === 0xf7) { p += vlq(); status = 0; }
       else if (hi === 0x90 || hi === 0x80) {
         const note = u8[p], vel = u8[p + 1]; p += 2;
-        ev.push({ time, type: hi === 0x90 && vel > 0 ? 'on' : 'off', note, ch });
+        ev.push({ time, type: hi === 0x90 && vel > 0 ? 'on' : 'off', note, ch, vel });
       } else if (hi === 0xc0 || hi === 0xd0) p += 1;
       else p += 2;
     }

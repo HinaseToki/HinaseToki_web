@@ -143,6 +143,36 @@ export function addVibrato(curve, frames, notes, depth = .13, minLen = .62) {
   return p;
 }
 
+// the first 60 % of each note no lower than `under` below it (a note started flat), back over `edge` frames
+export function liftAttacks(curve, frames, mids, under = .3, edge = 4) {
+  const p = Float32Array.from(curve); let pos = 0;
+  frames.forEach((n, i) => {
+    const a = pos, len = Math.floor(n * .6); pos += n;
+    if (mids[i] == null || n < 6) return;
+    const lift = Array.from(p.slice(a, a + len), x => Math.max(0, mids[i] - under - x)), k = Math.min(edge, lift.length >> 1);
+    for (let j = 0; j < k; j++) lift[lift.length - k + j] *= k > 1 ? 1 - j / (k - 1) : 1;
+    lift.forEach((d, j) => { p[a + j] += d; });
+  });
+  return p;
+}
+
+// long notes as a singer holds them: a growing vibrato, the phrase's last note a gentle fall (as engine.sing_long)
+export function singLong(curve, frames, notes, { every = .7, last = .6, rate = 5.5, depth = .25, onset = .3, fall = .5, tail = .15 } = {}) {
+  const p = Float32Array.from(curve), end = notes.findLastIndex(n => n.midi != null); let pos = 0;
+  frames.forEach((n, i) => {
+    const a = pos, e = notes[i].expr ?? {}; pos += n;
+    if (notes[i].midi == null || n * FT < (i === end ? last : every)) return;
+    const k = i === end && !('fall' in e) ? Math.floor(n * tail) : 0;
+    for (let j = 0; j < n; j++) {
+      const t = j * FT;
+      let y = 'vib' in e ? 0 : depth * clip((t - onset) / .4, 0, 1) * Math.sin(2 * Math.PI * rate * Math.max(t - onset, 0));
+      if (j >= n - k) { const q = j - (n - k); y -= fall * (1 - Math.cos(k > 1 ? q / (k - 1) * Math.PI / 2 : 0)); }
+      p[a + j] += y;
+    }
+  });
+  return p;
+}
+
 export function shapePitch(curve, frames, notes) {
   const p = Float32Array.from(curve), ease = x => (1 - clip(x, 0, 1)) ** 2; let pos = 0;
   frames.forEach((n, i) => {

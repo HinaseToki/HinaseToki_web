@@ -8,6 +8,8 @@ import { Roll } from './roll.js';
 import { mixdown, coverMix, COVER } from './mix.js';
 import { hasKanji, kanaOf } from './kanji.js';
 import { makeVideo, previewFrame, songLines } from './video.js';
+import { retime } from './retime.js';
+import { bandLayers } from './band.js';
 
 const PRESETS = {
   'こんにちは': [['こ', 67, .5], ['ん', 67, .5], ['に', 69, .5], ['ち', 67, .5], ['わ', 67, 1.5]],
@@ -208,6 +210,17 @@ $('scoreFile').onchange = async e => {
   e.target.value = '';
 };
 
+$('refFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const ref = (await readScoreFile(f)).notes.map(n => n.midi == null ? n : { ...n, lyric: toHiragana(n.lyric) });
+    const r = retime(ref, notes), sign = x => (x > 0 ? '+' : '') + x;
+    replace(r.notes);
+    say(`${f.name}의 박자에 맞추었습니다: 음표 ${r.notes.filter(n => n.midi != null).length}개, 박자 ${sign(r.offset)}, 키 ${sign(r.shift)}반음, 바뀐 곳 ${r.changes.length}곳 (실행 취소 가능)`);
+  } catch (err) { say(err.message); }
+  e.target.value = '';
+};
+
 // ---------------------------------------------------------------- the voice
 // The worker sings; where module workers do not exist the page does it itself.
 function makeClient() {
@@ -280,7 +293,7 @@ async function sing() {
   job = new AbortController();
   const steps = +$('steps').value, mine = structuredClone(notes), tempo = tempoOf();
   try {
-    const r = await synth.sing(mine, { tempo, steps, varSteps: steps >= 40 ? 20 : 10, clamp: $('clamp').checked, vibrato: $('vibrato').checked, takes,
+    const r = await synth.sing(mine, { tempo, steps, varSteps: steps >= 40 ? 20 : 10, clamp: $('clamp').checked, vibrato: { natural: 'natural', light: true }[$('vibrato').value] ?? false, takes,
       signal: job.signal, onStage: (s, p) => { say(s); $('singBar').value = p; } });
     if (songUrl) URL.revokeObjectURL(songUrl);
     songUrl = URL.createObjectURL(toWav(r.audio, r.sampleRate));
@@ -325,18 +338,34 @@ $('backFile').onchange = async e => {
     $('mixBtn').disabled = false; $('mixInfo').textContent = `${f.name} (${Math.round(b.duration)}초)`;
   } catch { $('mixInfo').textContent = '오디오 파일로 열 수 없습니다'; }
 };
-$('mixBtn').onclick = () => {
+let layered = null;                                // [backing, MIDI, track, the backing with the band layers]
+async function withBand() {
+  if (!$('bandLayers').checked || !midi) return back;
+  const track = +$('midiTrack').value;
+  if (layered?.[0] === back && layered[1] === midi && layered[2] === track) return layered[3];
+  $('mixInfo').textContent = '밴드 보강을 만드는 중…';
+  const [l, r] = await bandLayers(midi, track, back), bl = back[0], br = back[1] ?? back[0];
+  const out = [Float32Array.from(bl, (x, i) => x + l[i]), Float32Array.from(br, (x, i) => x + r[i])];
+  layered = [back, midi, track, out];
+  return out;
+}
+$('mixBtn').onclick = async () => {
   if (!song || !back) return;
-  // the song starts LEAD seconds into its own file: with offset 0 both first beats fall together
-  const offset = LEAD + (+$('backOffset').value || 0), vdb = +$('voiceLevel').value, bdb = +$('backLevel').value;
-  // the cover mix (as ai/cover/mix.py) brings the whole to one loudness: the sliders set the band against her (0 dB apart = as v35)
-  const [L, R] = $('coverMix').checked ? coverMix(song.audio, back, { offset, level: COVER.level * 10 ** ((bdb - vdb + 4) / 20) })
-    : mixdown(song.audio, back, { offset, voice: vdb, backing: bdb });
-  song.mix = [L, R];
-  if (mixUrl) URL.revokeObjectURL(mixUrl);
-  mixUrl = URL.createObjectURL(toWav([L, R], 44100));
-  $('mixPlayer').src = mixUrl; $('mixPlayer').hidden = false; $('mixDownload').href = mixUrl; $('mixDownload').hidden = false;
-  $('mixInfo').textContent = '믹스를 완료했습니다. 가사 영상에도 믹스한 음원을 사용합니다'; showVideoCard();
+  $('mixBtn').disabled = true;
+  try {
+    const band = await withBand();
+    // the song starts LEAD seconds into its own file: with offset 0 both first beats fall together
+    const offset = LEAD + (+$('backOffset').value || 0), vdb = +$('voiceLevel').value, bdb = +$('backLevel').value;
+    // the cover mix (as ai/cover/mix.py) brings the whole to one loudness: the sliders set the band against her (0 dB apart = as v35)
+    const [L, R] = $('coverMix').checked ? coverMix(song.audio, band, { offset, level: COVER.level * 10 ** ((bdb - vdb + 4) / 20) })
+      : mixdown(song.audio, band, { offset, voice: vdb, backing: bdb });
+    song.mix = [L, R];
+    if (mixUrl) URL.revokeObjectURL(mixUrl);
+    mixUrl = URL.createObjectURL(toWav([L, R], 44100));
+    $('mixPlayer').src = mixUrl; $('mixPlayer').hidden = false; $('mixDownload').href = mixUrl; $('mixDownload').hidden = false;
+    $('mixInfo').textContent = '믹스를 완료했습니다. 가사 영상에도 믹스한 음원을 사용합니다'; showVideoCard();
+  } catch (err) { $('mixInfo').textContent = err.message; }
+  finally { $('mixBtn').disabled = false; }
 };
 
 // ---------------------------------------------------------------- MIDI
@@ -350,8 +379,9 @@ $('midiFile').onchange = async e => {
     $('midiTrack').innerHTML = '';
     for (const t of list) $('midiTrack').add(new Option(`${t.track}. ${t.name || '(이름 없음)'} · ${t.notes}음 · ${noteName(t.low)}~${noteName(t.high)}`, t.track));
     pickTrack(list); $('midiTrack').disabled = false; $('midiBtn').disabled = false;
+    $('bandLayers').disabled = false; $('bandLayers').checked = true;
     $('midiInfo').textContent = '';
-  } catch (err) { midi = null; $('midiInfo').textContent = err.message; $('midiBtn').disabled = true; }
+  } catch (err) { midi = null; $('midiInfo').textContent = err.message; $('midiBtn').disabled = true; $('bandLayers').disabled = true; $('bandLayers').checked = false; }
 };
 // default: a singable, mostly one-note-at-a-time track whose note count is closest to the lyrics
 function pickTrack(list) {

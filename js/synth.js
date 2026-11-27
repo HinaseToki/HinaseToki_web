@@ -2,7 +2,7 @@
 // Pipeline: kana -> phonemes -> linguistic -> duration -> pitch -> variance -> acoustic -> vocoder.
 // How a score becomes phrases, durations and curves is phrase.js (the same rules as ai/render/engine.py).
 import { toHiragana } from './kana.js';
-import { FT, HOP, PAD, SR, VOWELS, addVibrato, centerNotes, clampDurations, dynamicsGain, fillRests, floorVowels, frameCounts, gate, noteCurve, phrases, scaleDurations, shapePitch } from './phrase.js';
+import { FT, HOP, PAD, SR, VOWELS, addVibrato, centerNotes, clampDurations, dynamicsGain, fillRests, floorVowels, frameCounts, gate, liftAttacks, noteCurve, phrases, scaleDurations, shapePitch, singLong } from './phrase.js';
 
 export const LEAD = 0.3;                       // silence before the first note of the song
 const lastVowel = ph => { const v = ph.findLast(x => VOWELS.has(x) && !['N', 'cl', 'AP', 'SP'].includes(x)); return v?.slice(-1); };
@@ -115,8 +115,13 @@ export class Synth {
       note_rest: T('bool', Uint8Array.from(all, n => n.midi == null ? 1 : 0), [1, all.length]), note_dur: wordDur,
       pitch: F(base), expr: F(new Float32Array(nFr).fill(1)), retake: T('bool', new Uint8Array(nFr).fill(1), [1, nFr]), steps: N(varSteps),
     })).pitch_pred.data;
+    // vibrato: 'natural' (flat starts lifted, long notes held like a singer), true (a light late vibrato), false
+    const natural = vibrato === 'natural';
     let curve = centerNotes(pitchOut, nf, all.map(n => n.midi), center ?? Infinity);
-    curve = shapePitch(addVibrato(curve, nf, all, undefined, vibrato ? .62 : Infinity), nf, all);
+    if (natural) curve = liftAttacks(curve, nf, all.map(n => n.midi));
+    curve = addVibrato(curve, nf, all, undefined, vibrato && !natural ? .62 : Infinity);
+    if (natural) curve = singLong(curve, nf, all);
+    curve = shapePitch(curve, nf, all);
 
     const z = () => F(new Float32Array(nFr)), takesTension = this.sessions.variance.inputNames?.includes('tension');
     const kinds = ['energy', 'breathiness', 'voicing', ...(takesTension ? ['tension'] : [])];
@@ -148,7 +153,7 @@ export class Synth {
 
   // The whole song, phrase by phrase, each placed at its own time. notes: [{lyric, midi, beats, expr}].
   // A phrase that did not change since the last time is not sung again; takes {phrase: n} asks for another take.
-  async sing(notes, { tempo = 110, steps = 20, varSteps = 10, clamp = true, vibrato = true, takes = {}, onStage, signal } = {}) {
+  async sing(notes, { tempo = 110, steps = 20, varSteps = 10, clamp = true, vibrato = 'natural', takes = {}, onStage, signal } = {}) {
     notes = notes.map(n => ({ lyric: String(n.lyric ?? '').trim(), midi: n.midi ?? null, beats: Math.max(1 / 64, +n.beats || 1), expr: n.expr ?? {} }));
     if (!notes.some(n => n.midi != null)) throw new Error('부를 음표가 없습니다. 음표를 하나 이상 입력해 주십시오');
     const empty = notes.findIndex(n => n.midi != null && !n.lyric);
