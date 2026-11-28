@@ -464,24 +464,27 @@ $('voice').onchange = () => {
   if (loaded) start(); else offer();
 };
 async function start() {
-  $('loadBtn').disabled = true; $('loadBar').hidden = false; $('singBtn').disabled = true; $('voice').disabled = true;
+  $('loadBtn').hidden = true; $('loadBar').hidden = false; $('singBtn').disabled = true; $('voice').disabled = true;
   try {
     const info = await synth.load(p => { $('loadBar').value = p; $('loadInfo').textContent = `내려받는 중 ${Math.round(p * 100)}%`; },
                                   voiceBase === 'models/' ? undefined : voiceBase);
     controls = info.controls; buildExpr(); showSelection(); loaded = true; $('voice').disabled = false; $('loadBtn').hidden = true;
     $('loadInfo').textContent = voices.length ? `준비 완료 (${voiceName()})` : '준비 완료'; $('loadBar').hidden = true; $('singBtn').disabled = false;
-  } catch (e) { $('loadInfo').textContent = '음성 모델을 내려받지 못했습니다. 새로고침 후 다시 시도해 주십시오. (' + e.message + ')'; $('loadBtn').disabled = false; $('voice').disabled = false; $('loadBar').hidden = true; }
+  } catch (e) { $('loadInfo').textContent = '음성 모델을 내려받지 못했습니다. 다시 시도해 주십시오. (' + e.message + ')'; $('loadBtn').hidden = false; $('voice').disabled = false; $('loadBar').hidden = true; }
 }
 $('loadBtn').onclick = start;
-// already downloaded once: start right away
+// the voice comes down by itself as the page opens (from the cache once it has); with the browser's data
+// saver on, only when the visitor presses the button
 async function offer() {
+  let cached = false;
   try {
     const m = await fetchManifest(voiceBase), all = Object.values(m.files).flat();
     const mb = Math.round(all.reduce((n, p) => n + p.size, 0) / 1e6);
     $('loadInfo').textContent = `${mb}MB`;
     const c = await caches.open(modelCache(m, voiceBase)), base = new URL(voiceBase, location.href).href;
-    if ((await Promise.all(all.map(p => c.match(base + p.name)))).every(Boolean)) start();
-  } catch {}
+    cached = (await Promise.all(all.map(p => c.match(base + p.name)))).every(Boolean);
+  } catch {}                                   // no cache here (a private window): it still comes down
+  if (cached || !navigator.connection?.saveData) start();
 }
 chooseVoices().then(offer);
 
