@@ -6,7 +6,7 @@ import { exportMidi, exportMusicXml, exportUstx, readScoreFile, writeProject } f
 import { HIGH, LOW, History, RANGE, addNote, clean, copyNotes, fromText, onsets, removeNotes, setExpr, setLyrics, toText, totalBeats, transpose, writeNotes } from './score.js';
 import { Roll } from './roll.js';
 import { Staff } from './staff.js';
-import { KEYS, KEY_NAMES, LETTERS, SIGS, barBeat, nearestPitch } from './notation.js';
+import { CLEFS, KEYS, KEY_NAMES, LETTERS, SIGS, barBeat, clefOf, nearestPitch } from './notation.js';
 import { Transport } from './transport.js';
 import { mixdown, coverMix, COVER } from './mix.js';
 import { hasKanji, kanaOf } from './kanji.js';
@@ -25,11 +25,11 @@ const tempoOf = () => Math.min(400, Math.max(20, +$('tempo').value || 110));
 const fromPreset = k => PRESETS[k].map(([lyric, midi, beats]) => ({ lyric, midi, beats }));
 
 // ---------------------------------------------------------------- the score
-// the score's time signature and key: how it is written, not what is sung
-let meta = { sig: [4, 4], key: 0 };
+// the score's time signature, key and clef: how it is written, not what is sung
+let meta = { sig: [4, 4], key: 0, clef: 'auto' };
 function setMeta(d) {
   const sig = SIGS.find(s => s[0] === d?.sig?.[0] && s[1] === d?.sig?.[1]), key = KEYS.includes(d?.key) ? d.key : 0;
-  meta = { sig: sig ?? [4, 4], key };
+  meta = { sig: sig ?? [4, 4], key, clef: d?.clef in CLEFS ? d.clef : 'auto' };
 }
 // from the share link, else the last one used, else the first example
 function loadScore() {
@@ -46,8 +46,8 @@ function loadScore() {
   return fromPreset('こんにちは');
 }
 let notes = loadScore();
-const history = new History({ notes, meta });          // the time signature and key go back with the notes
-const doc = () => ({ tempo: tempoOf(), sig: meta.sig, key: meta.key, notes });
+const history = new History({ notes, meta });          // the time signature, key and clef go back with the notes
+const doc = () => ({ tempo: tempoOf(), sig: meta.sig, key: meta.key, clef: meta.clef, notes });
 const save = () => { try { localStorage.setItem('toki-score', JSON.stringify(doc())); } catch {} };
 
 // two views of one score: the staff (as a score editor shows it) and the piano roll; the selection is shared
@@ -75,14 +75,28 @@ function showView(which, focus = false) {
   current = which === 'roll' ? roll : staff;
   $('rollBox').hidden = current !== roll; $('staffBox').hidden = current !== staff;
   $('viewStaff').setAttribute('aria-pressed', current === staff); $('viewRoll').setAttribute('aria-pressed', current === roll);
-  $('viewHint').textContent = current === staff
-    ? '음표를 누르면 선택하고, 위아래로 끌면 음높이가 바뀝니다. 음표를 두 번 누르면 가사를 수정합니다. 빈 곳을 누르면 커서가 놓이며, N을 누른 뒤 A~G로 음을 입력합니다.'
-    : '빈 곳을 두 번 누르면 음표가 추가되고, 음표를 두 번 누르면 가사를 수정합니다. 음표를 끌면 음높이와 위치가, 오른쪽 끝을 끌면 길이가 변경됩니다. 빈 곳에서 끌면 여러 음표를 선택합니다.';
   try { localStorage.setItem('toki-view', current === roll ? 'roll' : 'staff'); } catch {}
   current.layout(); current.fit(); if (focus) current.canvas.focus({ preventScroll: true });
 }
 $('viewStaff').onclick = () => showView('staff', true);
 $('viewRoll').onclick = () => showView('roll', true);
+
+// the side panel: one tab at a time
+const tabs = [...document.querySelectorAll('[role=tab]')];
+function showTab(name) {
+  for (const t of tabs) {
+    const on = t.id === 'tab-' + name;
+    t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1; $(t.getAttribute('aria-controls')).hidden = !on;
+  }
+  if (name === 'text' && $('tableBox').open) table();
+}
+for (const t of tabs) {
+  t.onclick = () => showTab(t.id.slice(4));
+  t.onkeydown = e => {
+    const k = { ArrowRight: 1, ArrowLeft: -1 }[e.key]; if (!k) return;
+    const next = tabs[(tabs.indexOf(t) + k + tabs.length) % tabs.length]; showTab(next.id.slice(4)); next.focus(); e.preventDefault();
+  };
+}
 
 function edit(now, selection = null) {
   notes = now; history.push({ notes, meta });
@@ -90,7 +104,7 @@ function edit(now, selection = null) {
   refresh();
 }
 function refresh() {
-  save(); for (const v of views) v.layout(); current.draw(); showSelection(); songSource();
+  save(); for (const v of views) v.layout(); current.draw(); showSelection(); songSource(); showMeta();
   if ($('tableBox').open) table();
   if (document.activeElement !== $('text')) $('text').value = toText(notes);
   $('undoBtn').disabled = !history.past.length; $('redoBtn').disabled = !history.future.length;
@@ -151,7 +165,7 @@ function buildExpr() {
 }
 function showSelection() {
   const sel = [...ed.selected].filter(i => notes[i]?.midi != null).sort((a, b) => a - b), first = notes[sel[0]];
-  $('expr').disabled = !sel.length; $('delBtn').disabled = !sel.length;
+  $('expr').disabled = !sel.length; $('exprEmpty').hidden = !!sel.length; $('delBtn').disabled = !sel.length;
   for (const s of $('exprRows').querySelectorAll('input')) {
     const v = first?.expr?.[s.dataset.k]; s.value = v ?? 0; s.nextElementSibling.textContent = v ?? '기본';
   }
@@ -197,7 +211,12 @@ function setCaret(beat) {
   if (!tp.playing) showPos(caret);
   current.draw();
 }
-function showMeta() { $('sig').value = meta.sig.join('/'); $('keySig').value = meta.key; }
+const CLEF_NAMES = { treble: '높은음자리표', bass: '낮은음자리표' };
+function showMeta() {
+  $('sig').value = meta.sig.join('/'); $('keySig').value = meta.key; $('clef').value = meta.clef;
+  $('clef').options[0].textContent = `자동 (${CLEF_NAMES[clefOf(notes, 'auto', meta.key)]})`;   // which one auto picks now
+}
+$('clef').onchange = e => { meta = { ...meta, clef: e.target.value }; edit(notes, ed.selected); };
 for (const [n, d] of SIGS) $('sig').add(new Option(`${n}/${d}`, `${n}/${d}`));
 for (const k of KEYS) $('keySig').add(new Option(`${KEY_NAMES[k]}장조 (${k > 0 ? '♯' + k : k < 0 ? '♭' + -k : '없음'})`, k));
 $('sig').onchange = e => { const [n, d] = e.target.value.split('/').map(Number); meta = { ...meta, sig: [n, d] }; edit(notes, ed.selected); };
@@ -392,7 +411,7 @@ function saveFile(data, name, type) {
 }
 for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => ({
   toki: () => saveFile(writeProject(doc()), 'toki_project.json', 'application/json'),
-  musicxml: () => saveFile(exportMusicXml(notes, { tempo: tempoOf(), ...meta }), 'toki.musicxml', 'application/vnd.recordare.musicxml+xml'),
+  musicxml: () => saveFile(exportMusicXml(notes, { tempo: tempoOf(), ...meta, clef: clefOf(notes, meta.clef, meta.key) }), 'toki.musicxml', 'application/vnd.recordare.musicxml+xml'),
   ustx: () => saveFile(exportUstx(notes, tempoOf(), meta.sig), 'toki.ustx', 'text/yaml'),
   mid: () => saveFile(exportMidi(notes, tempoOf()), 'toki.mid', 'audio/midi'),
   txt: () => saveFile(`tempo: ${tempoOf()}\n${toText(notes)}\n`, 'toki.txt', 'text/plain'),
@@ -447,7 +466,7 @@ $('voice').onchange = () => {
 async function start() {
   $('loadBtn').disabled = true; $('loadBar').hidden = false; $('singBtn').disabled = true; $('voice').disabled = true;
   try {
-    const info = await synth.load(p => { $('loadBar').value = p; $('loadInfo').textContent = `음성 모델 다운로드 중… ${Math.round(p * 100)}%`; },
+    const info = await synth.load(p => { $('loadBar').value = p; $('loadInfo').textContent = `내려받는 중 ${Math.round(p * 100)}%`; },
                                   voiceBase === 'models/' ? undefined : voiceBase);
     controls = info.controls; buildExpr(); showSelection(); loaded = true; $('voice').disabled = false; $('loadBtn').hidden = true;
     $('loadInfo').textContent = voices.length ? `준비 완료 (${voiceName()})` : '준비 완료'; $('loadBar').hidden = true; $('singBtn').disabled = false;
@@ -459,7 +478,7 @@ async function offer() {
   try {
     const m = await fetchManifest(voiceBase), all = Object.values(m.files).flat();
     const mb = Math.round(all.reduce((n, p) => n + p.size, 0) / 1e6);
-    $('loadInfo').textContent = `최초 1회 음성 모델(${mb}MB)을 내려받습니다. 모든 합성은 이 기기에서 처리됩니다.`;
+    $('loadInfo').textContent = `${mb}MB`;
     const c = await caches.open(modelCache(m, voiceBase)), base = new URL(voiceBase, location.href).href;
     if ((await Promise.all(all.map(p => c.match(base + p.name)))).every(Boolean)) start();
   } catch {}
@@ -483,7 +502,7 @@ let job = null, takes = {}, songUrl = null;
 $('stopBtn').onclick = () => job?.abort();
 $('singBtn').onclick = () => { takes = {}; sing(); };
 async function sing() {
-  $('singBtn').disabled = true; $('stopBtn').hidden = false; $('singBar').hidden = false; $('singBar').value = 0;
+  $('singBtn').disabled = true; $('singBtn').classList.add('singing'); $('stopBtn').hidden = false; $('singBar').hidden = false; $('singBar').value = 0;
   job = new AbortController();
   const steps = +$('steps').value, mine = structuredClone(notes), tempo = tempoOf();
   try {
@@ -497,11 +516,11 @@ async function sing() {
     songBuffer = new AudioBuffer({ length: r.audio.length, sampleRate: r.sampleRate, numberOfChannels: 1 });
     songBuffer.copyToChannel(r.audio, 0); songBuffer.lead = LEAD; songSource();
     if (songMatches()) $('tSource').value = 'song';
-    showPhrases(); showVideoCard(); $('mixBox').hidden = false;
+    showPhrases(); showVideoCard(); $('mixBox').hidden = false; showTab('song');
     const w = warnings();
     say(w.length ? w.slice(0, 3).join(' / ') + (w.length > 3 ? ` 외 ${w.length - 3}개` : '') : '');
   } catch (e) { say(e.name === 'AbortError' ? '중지했습니다' : e.message); if (e.name !== 'AbortError') console.error(e); }
-  $('singBtn').disabled = false; $('stopBtn').hidden = true; $('singBar').hidden = true; job = null;
+  $('singBtn').disabled = false; $('singBtn').classList.remove('singing'); $('stopBtn').hidden = true; $('singBar').hidden = true; job = null;
 }
 function showPhrases() {
   $('phraseBox').hidden = false; $('phraseList').innerHTML = '';

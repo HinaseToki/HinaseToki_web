@@ -102,3 +102,15 @@ export function nearestPitch(letter, ref, key = 0, low = 0, high = 127) {
   return best;
 }
 export const LETTERS = 'cdefgab';
+
+// ---------------------------------------------------------------- clefs
+// bottom: the staff step of the lowest line (E4 for treble, G2 for bass)
+export const CLEFS = { treble: { bottom: 30, sign: 'G', line: 2 }, bass: { bottom: 18, sign: 'F', line: 4 } };
+const ledgers = (step, bottom) => step < bottom - 1 ? Math.floor((bottom - step) / 2) : step > bottom + 9 ? Math.floor((step - bottom - 8) / 2) : 0;
+// 'treble' | 'bass' as chosen; 'auto': the clef that needs fewer ledger lines for these notes (treble when even)
+export function clefOf(notes, choice = 'auto', key = 0) {
+  if (CLEFS[choice]) return choice;
+  const steps = notes.filter(n => n.midi != null).map(n => spell(n.midi, key).step);
+  const cost = c => steps.reduce((a, s) => a + ledgers(s, CLEFS[c].bottom), 0);
+  return cost('bass') < cost('treble') ? 'bass' : 'treble';
+}

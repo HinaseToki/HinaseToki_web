@@ -1,11 +1,11 @@
-// The score as sheet music on one treble staff: systems that wrap like a page, bars of the time signature, the key,
-// note values with dots, beams, ties and triplets, lyrics under the notes. Notes are picked, dragged up and down
-// (along the staff), and a click elsewhere puts the input cursor there. Like the roll it only asks for edits.
-import { FLAGS, accidentals, barLength, keyLetters, measures, pulse, spell, stepMidi } from './notation.js';
+// The score as sheet music on one staff (treble or bass clef): systems that wrap like a page, bars of the time signature,
+// the key, note values with dots, beams, ties and triplets, lyrics under the notes. Notes are picked, dragged up and
+// down (along the staff), and a click elsewhere puts the input cursor there. Like the roll it only asks for edits.
+import { CLEFS, FLAGS, accidentals, barLength, clefOf, keyLetters, measures, pulse, spell, stepMidi } from './notation.js';
 import { HIGH, LOW, onsets, transpose } from './score.js';
 import { editKey } from './roll.js';
 
-const BOTTOM = 30;                                                        // E4, the staff's lowest line
+// the key signature's steps on a treble staff (a bass staff has them two octaves lower)
 const SHARP_STEPS = [38, 35, 39, 36, 33, 37, 34], FLAT_STEPS = [34, 37, 33, 36, 32, 35, 31];
 const GLYPH = { 1: '♯', '-1': '♭', 0: '♮' };
 const MUSIC_FONT = '"Bravura Text", "Noto Music", "Apple Symbols", "Segoe UI Symbol", serif';
@@ -36,8 +36,9 @@ export class Staff {
 
   // ---------------------------------------------------------------- layout
   layout(notes = this.page.notes()) {
-    const { sig, key } = this.page.meta(), sp = this.sp, W = this.scroller.clientWidth;
+    const { sig, key, clef: choice = 'auto' } = this.page.meta(), sp = this.sp, W = this.scroller.clientWidth;
     if (!W) return;
+    const clef = clefOf(notes, choice, key), mid = (this.bottom = CLEFS[clef].bottom) + 4;   // the middle line
     const c = this.canvas.getContext('2d'); c.font = this.lyricFont();
     const bars = measures(notes, sig), margin = sp * 1.5, avail = W - margin * 2;
     const header = first => sp * 4.2 + Math.abs(key) * sp * 1.05 + (first ? sp * 3 : 0);
@@ -59,13 +60,13 @@ export class Staff {
       cur.bars.push({ ...b, number: i + 1 }); cur.used += b.w;
     });
     // each system as high as its notes reach (stems and ledger lines), the lyrics just under its lowest note
-    const pieces = [], byIndex = new Map(), rel = step => sp * 4 - (step - BOTTOM) * sp / 2;
+    const pieces = [], byIndex = new Map(), rel = step => sp * 4 - (step - this.bottom) * sp / 2;
     let y = 0;
     systems.forEach((s, k) => {
       const h = header(s.first), room = avail - h, stretch = k < systems.length - 1 || s.used > room * .7 ? room / s.used : 1;
       const steps = s.bars.flatMap(b => b.items.filter(it => !it.p.rest).map(it => spell(notes[it.p.index].midi, key).step));
-      const above = Math.max(sp * 3.5, ...steps.map(st => -rel(st) + (st < 34 ? sp * 3.6 : sp) + sp * 1.2));
-      const below = Math.max(sp * 4.5, ...steps.map(st => rel(st) + (st < 34 ? sp : sp * 3.6)));
+      const above = Math.max(sp * 3.5, ...steps.map(st => -rel(st) + (st < mid ? sp * 3.6 : sp) + sp * 1.2));
+      const below = Math.max(sp * 4.5, ...steps.map(st => rel(st) + (st < mid ? sp : sp * 3.6)));
       s.top = y; s.y = y + above; s.lyricY = s.y + below + sp * 2.3; s.bottom = s.lyricY + sp * 1.6; y = s.bottom;
       s.header = h; let x = margin + h;
       for (const b of s.bars) {
@@ -80,11 +81,11 @@ export class Staff {
       }
       s.x1 = x;
     });
-    this.L = { systems, pieces, byIndex, W, H: y + sp, sig, key };
+    this.L = { systems, pieces, byIndex, W, H: y + sp, sig, key, clef, mid };
     this.canvas.style.height = this.L.H + 'px';
   }
   lyricFont() { return `${Math.round(13 * Math.sqrt(this.scale))}px system-ui, -apple-system, "Hiragino Sans", sans-serif`; }
-  yOf(step, sysY) { return sysY + this.sp * 4 - (step - BOTTOM) * this.sp / 2; }       // sysY: the staff's top line
+  yOf(step, sysY) { return sysY + this.sp * 4 - (step - this.bottom) * this.sp / 2; }       // sysY: the staff's top line
   // the x of a beat (and its system), between the pieces around it
   beatX(beat) {
     const ps = this.L?.pieces; if (!ps?.length) return null;
@@ -170,10 +171,11 @@ export class Staff {
       for (let i = 0; i < 5; i++) line(margin, y0 + i * sp, s.x1, y0 + i * sp, Math.max(1, sp / 9));
       line(margin, y0, margin, y0 + 4 * sp, 1.2);
       // clef, key, time
-      text('\u{1D11E}', margin + sp * 1.9, y0 + sp * 4.15, `${sp * 6.6}px ${MUSIC_FONT}`);
+      if (L.clef === 'bass') text('\u{1D122}', margin + sp * 1.8, y0 + sp * 3.2, `${sp * 4.2}px ${MUSIC_FONT}`);
+      else text('\u{1D11E}', margin + sp * 1.9, y0 + sp * 4.15, `${sp * 6.6}px ${MUSIC_FONT}`);
       let kx = margin + sp * 4.2;
       for (const [j, letter] of keyLetters(L.key).entries()) {
-        const step = (L.key > 0 ? SHARP_STEPS : FLAT_STEPS)[j]; void letter;
+        const step = (L.key > 0 ? SHARP_STEPS : FLAT_STEPS)[j] + this.bottom - CLEFS.treble.bottom; void letter;
         text(L.key > 0 ? '♯' : '♭', kx + j * sp * 1.05, this.yOf(step, y0) + sp * (L.key > 0 ? .55 : .35), `${sp * 2.3}px ${MUSIC_FONT}`);
       }
       if (s.first) {
@@ -195,14 +197,14 @@ export class Staff {
       x.fillStyle = x.strokeStyle = colour(p);
       if (p.p.rest) { this.rest(x, p, sy); continue; }
       const step = p.s.step, hw = sp * .66;
-      for (let s = 28; s >= step; s -= 2) line(p.hx - hw - sp * .45, this.yOf(s, sy), p.hx + hw + sp * .45, this.yOf(s, sy), 1.2);
-      for (let s = 40; s <= step; s += 2) line(p.hx - hw - sp * .45, this.yOf(s, sy), p.hx + hw + sp * .45, this.yOf(s, sy), 1.2);
+      for (let s = this.bottom - 2; s >= step; s -= 2) line(p.hx - hw - sp * .45, this.yOf(s, sy), p.hx + hw + sp * .45, this.yOf(s, sy), 1.2);
+      for (let s = this.bottom + 10; s <= step; s += 2) line(p.hx - hw - sp * .45, this.yOf(s, sy), p.hx + hw + sp * .45, this.yOf(s, sy), 1.2);
       x.beginPath(); x.ellipse(p.hx, p.hy, hw, sp * .45, -.35, 0, Math.PI * 2);
       if (p.p.type === 'half' || p.p.type === 'whole') { x.lineWidth = sp * .18; x.stroke(); } else x.fill();
       if (p.acc != null) text(GLYPH[p.acc], p.hx - hw - sp * .75, p.hy + sp * .5, `${sp * 2.2}px ${MUSIC_FONT}`);
-      for (let d = 0; d < p.p.dots; d++) { x.beginPath(); x.arc(p.hx + hw + sp * (.5 + d * .5), p.hy - ((step - BOTTOM) % 2 === 0 ? sp / 2 : 0), sp * .17, 0, Math.PI * 2); x.fill(); }
+      for (let d = 0; d < p.p.dots; d++) { x.beginPath(); x.arc(p.hx + hw + sp * (.5 + d * .5), p.hy - ((step - this.bottom) % 2 === 0 ? sp / 2 : 0), sp * .17, 0, Math.PI * 2); x.fill(); }
       if (p.p.type !== 'whole' && !groups.member.has(p)) {
-        const up = step < 34, sx = up ? p.hx + hw - .6 : p.hx - hw + .6, tip = up ? p.hy - sp * 3.4 : p.hy + sp * 3.4;
+        const up = step < L.mid, sx = up ? p.hx + hw - .6 : p.hx - hw + .6, tip = up ? p.hy - sp * 3.4 : p.hy + sp * 3.4;
         line(sx, p.hy, sx, tip, sp * .12);
         for (let f = 0; f < FLAGS[p.p.type]; f++) {
           const fy = tip + (up ? 1 : -1) * f * sp * .85;
@@ -220,7 +222,7 @@ export class Staff {
     x.fillStyle = x.strokeStyle = ink;
     for (const g of groups.list) {
       x.fillStyle = x.strokeStyle = g.some(p => sel.has(p.p.index)) ? pick : ink;
-      const up = g.reduce((a, p) => a + p.s.step, 0) / g.length < 34, hw = sp * .66, sy = L.systems[g[0].sys].y;
+      const up = g.reduce((a, p) => a + p.s.step, 0) / g.length < L.mid, hw = sp * .66, sy = L.systems[g[0].sys].y;
       const ys = g.map(p => p.hy), beamY = up ? Math.min(...ys) - sp * 3.2 : Math.max(...ys) + sp * 3.2, sxOf = p => up ? p.hx + hw - .6 : p.hx - hw + .6;
       for (const p of g) line(sxOf(p), p.hy, sxOf(p), beamY, sp * .12);
       const level = (lv, a, b) => x.fillRect(a, beamY + (up ? 1 : -1) * lv * sp * .8 - (up ? 0 : sp * .5), b - a, sp * .5);
@@ -244,7 +246,7 @@ export class Staff {
     L.pieces.forEach((p, i) => {
       if (p.p.rest || !p.p.tieStart) return;
       const q = L.pieces.slice(i + 1).find(o => o.p.index === p.p.index); if (!q) return;
-      const below = p.s.step >= 34 ? -1 : 1, off = below * sp * .7;
+      const below = p.s.step >= L.mid ? -1 : 1, off = below * sp * .7;
       const arc = (a, b, y) => { x.lineWidth = sp * .16; x.beginPath(); x.moveTo(a, y + off); x.quadraticCurveTo((a + b) / 2, y + off + below * sp * 1.1, b, y + off); x.stroke(); };
       x.strokeStyle = colour(p);
       if (q.sys === p.sys) arc(p.hx + sp * .5, q.hx - sp * .5, p.hy);

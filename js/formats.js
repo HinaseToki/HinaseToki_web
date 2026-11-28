@@ -121,14 +121,14 @@ export function importMusicXml(text) {
   if (!out.some(n => n.midi != null)) throw new Error('이 MusicXML 파일에는 음표가 없습니다');
   const time = /<time(?:\s[^>]*)?>([\s\S]*?)<\/time>/.exec(part)?.[1] ?? '', num = +tag(time, 'beats'), den = +tag(time, 'beat-type'), fifths = +tag(tag(part, 'key') ?? '', 'fifths');
   return { tempo, notes: clean(tidy(out)), sig: num > 0 && [1, 2, 4, 8, 16].includes(den) ? [Math.min(16, num), den] : [4, 4],
-    key: Number.isInteger(fifths) && Math.abs(fifths) <= 7 ? fifths : 0 };
+    key: Number.isInteger(fifths) && Math.abs(fifths) <= 7 ? fifths : 0, clef: /<clef\b[^>]*>\s*<sign>F<\/sign>/.test(part) ? 'bass' : 'treble' };
 }
 
 // One part, one staff: bars of the time signature, notes over barlines tied, the lyric on the first piece of each note
 // (a held 'ー' goes without one: that is how a melisma reads back). MuseScore, Finale, Dorico and others open it.
 const XML_STEP = 'CDEFGAB', ALTER = { '-1': 'flat', 0: 'natural', 1: 'sharp' };
 const xml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
-export function exportMusicXml(notes, { tempo = 120, sig = [4, 4], key = 0, title = '' } = {}) {
+export function exportMusicXml(notes, { tempo = 120, sig = [4, 4], key = 0, clef = 'treble', title = '' } = {}) {
   const DIV = 480, at = b => Math.round(b * DIV);
   const bars = measures(notes, sig).map((bar, b) => {
     const acc = accidentals(bar, notes, key);
@@ -143,7 +143,7 @@ export function exportMusicXml(notes, { tempo = 120, sig = [4, 4], key = 0, titl
         + (p.tuplet ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>' : '')
         + (tied ? `<notations>${tied}</notations>` : '') + lyric + '</note>';
     }).join('');
-    const attrs = b ? '' : `<attributes><divisions>${DIV}</divisions><key><fifths>${key}</fifths></key><time><beats>${sig[0]}</beats><beat-type>${sig[1]}</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>`
+    const attrs = b ? '' : `<attributes><divisions>${DIV}</divisions><key><fifths>${key}</fifths></key><time><beats>${sig[0]}</beats><beat-type>${sig[1]}</beat-type></time><clef><sign>${clef === 'bass' ? 'F' : 'G'}</sign><line>${clef === 'bass' ? 4 : 2}</line></clef></attributes>`
       + `<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${Math.round(tempo * 100) / 100}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>`;
     return `<measure number="${b + 1}">${attrs}${body}</measure>`;
   });
