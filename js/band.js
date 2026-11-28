@@ -5,7 +5,7 @@
 // voice's 2-4 kHz. Guitars, drums, crashes and fills play only in bars where the MIDI's own drums play; guitars
 // and sub follow the bass where it walks off the root; a strings tone a semitone from a sung note is left out;
 // every bar stays 3 dB under the backing. The reading of the MIDI and the backing (chords, segments, energy,
-// sectionStarts, midiParts, followBass, clearOf, underBand) is the same as Python's (tests/test_web.py); the
+// sectionStarts, midiParts, followBass, clearOf, underBand, followStops) is the same as Python's (tests/test_web.py); the
 // sound is made by the browser's own oscillators and filters.
 import { beatsAt } from './midi.js';
 
@@ -71,29 +71,33 @@ export function chords(notes, nBeats) {
 const same = (a, b) => a === b || (a && b && a.length === b.length && a.every((x, i) => x === b[i]));
 
 // per beat: whether the MIDI's own drums play in that bar (4 beats); per beat the bass's lowest pitch class
-// (null where it rests; a track named bass or on a bass program); the melody's [start beat, beats, note]
+// (null where it rests): a track named bass or on a bass program, or where there is none, the tracks that sit low
+// (their median note under C3, e.g. a muted guitar playing the bass line); the melody's [start beat, beats, note]
 export function midiParts(mid, melodyTrack, nBeats) {
-  const drums = new Array(nBeats).fill(false), bass = new Array(nBeats).fill(null), melody = [];
+  const drums = new Array(nBeats).fill(false), bass = new Array(nBeats).fill(null), melody = [], named = [], lowOnes = [];
+  const median = xs => { const s = [...xs].sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
   mid.tracks.forEach((tr, i) => {
     const prog = tr.events.find(e => e.type === 'program')?.program ?? -1;
     const isDrum = /drum/i.test(tr.name ?? '') || tr.events.some(e => e.type === 'on' && e.ch === 9);
-    const isBass = /bass/i.test(tr.name ?? '') || (prog >= 32 && prog <= 39);
-    const on = new Map(), low = new Map();
+    const on = new Map(), low = new Map(), pitches = [];
     for (const e of tr.events) {
       if (e.type === 'on') {
-        on.set(e.note, e.time);
+        on.set(e.note, e.time); pitches.push(e.note);
         const b = Math.floor(beatsAt(mid, e.time));
         if (isDrum && b < nBeats) for (let k = Math.floor(b / 4) * 4; k < Math.min(nBeats, Math.floor(b / 4) * 4 + 4); k++) drums[k] = true;
       } else if (e.type === 'off' && on.has(e.note)) {
         const s = beatsAt(mid, on.get(e.note)), d = beatsAt(mid, e.time) - s; on.delete(e.note);
         if (i === melodyTrack) melody.push([s, d, e.note]);
-        else if (isBass && !isDrum)
+        else if (!isDrum)
           for (let b = Math.floor(s); b < Math.min(nBeats, Math.ceil(s + d)); b++)
             if (Math.min(b + 1, s + d) - Math.max(b, s) >= .25) low.set(b, Math.min(low.get(b) ?? 200, e.note));
       }
     }
-    for (const [b, n] of low) if (bass[b] == null) bass[b] = n % 12;
+    if (isDrum || i === melodyTrack || !pitches.length) return;
+    if (/bass/i.test(tr.name ?? '') || (prog >= 32 && prog <= 39)) named.push(low);
+    else if (median(pitches) < 48) lowOnes.push(low);
   });
+  for (const low of named.length ? named : lowOnes) for (const [b, n] of low) if (bass[b] == null) bass[b] = n % 12;
   return { drums, bass, melody };
 }
 
@@ -119,6 +123,30 @@ export function underBand(layers, L, R, bar, sr = 44100, under = 3) {
   const at = i => g[clip(i, 0, total - 1)];
   for (let i = -h; i <= h; i++) s += at(i);
   for (let i = 0; i < total; i++) { out[i] = s / (2 * h + 1); s += at(i + h + 1) - at(i - h); }
+  return out;
+}
+// the layers down through the band's stops: where the band falls `drop` dB under its median level around it
+// (`around` s each side, `hop` s frames), by as much, from two frames before; eased over 10 ms (Python's follow_stops)
+export function followStops(L, R, total, sr = 44100, drop = 15, hop = .02, around = 1) {
+  const h = Math.floor(hop * sr), n = Math.floor(total / h), w = Math.round(around / hop), g = new Float64Array(total).fill(1);
+  if (n) {
+    const e = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = i * h; j < (i + 1) * h; j++) { const x = ((L[j] ?? 0) + (R[j] ?? 0)) / 2; s += x * x; }
+      e[i] = 20 * Math.log10(Math.sqrt(s / h) + 1e-7);
+    }
+    const f = new Float64Array(n);
+    for (let i = 0; i < n; i++) f[i] = 10 ** (Math.min(0, e[i] - (median(e.subarray(Math.max(0, i - w), i + w + 1)) - drop)) / 20);
+    for (let i = 0; i < n; i++) {
+      const v = Math.min(f[i], i + 1 < n ? f[i + 1] : 1, i + 2 < n ? f[i + 2] : 1);
+      g.fill(v, i * h, (i + 1) * h);
+    }
+  }
+  const r = 220, out = new Float32Array(total); let s = 0;
+  const at = i => g[clip(i, 0, total - 1)];
+  for (let i = -r; i <= r; i++) s += at(i);
+  for (let i = 0; i < total; i++) { out[i] = s / (2 * r + 1); s += at(i + r + 1) - at(i - r); }
   return out;
 }
 // [first beat, beats, chord] of each run of beats on one chord
@@ -269,6 +297,7 @@ export async function bandLayers(mid, melodyTrack, backing, { amount = 2.5, sr =
   }
   const buf = await ctx.startRendering(), layers = [buf.getChannelData(0), buf.getChannelData(1)];
   const g = underBand(layers, L, R, 4 * beat, sr, under);                          // every bar under the backing
-  for (const c of layers) for (let i = 0; i < c.length; i++) c[i] *= g[i];
+  const st = followStops(L, R, layers[0].length, sr);                              // and quiet through its stops
+  for (const c of layers) for (let i = 0; i < c.length; i++) c[i] *= g[i] * st[i];
   return layers;
 }

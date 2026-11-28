@@ -1,6 +1,7 @@
 // Scores of other programs, read and written in the browser: OpenUtau (ustx), UTAU (ust), MusicXML, MIDI, and this
 // page's own project file. Reading gives {tempo, notes}; only one melody line is taken (the first voice).
 import { clean, tidy, toText } from './score.js';
+import { accidentals, measures, spell } from './notation.js';
 
 const TPB = 480;
 const rest = beats => ({ lyric: '', midi: null, beats });
@@ -42,7 +43,7 @@ export function importUstx(text) {
   return { tempo, notes: fromTicks(list, tpb) };
 }
 
-export function exportUstx(notes, tempo) {
+export function exportUstx(notes, tempo, [num, den] = [4, 4]) {
   const body = ticks(notes).map(([a, len, n]) => `  - position: ${a}
     duration: ${len}
     tone: ${n.midi}
@@ -60,10 +61,10 @@ cache_dir: UCache
 ustx_version: "0.6"
 resolution: ${TPB}
 bpm: ${tempo}
-beat_per_bar: 4
-beat_unit: 4
+beat_per_bar: ${num}
+beat_unit: ${den}
 time_signatures:
-- {bar_position: 0, beat_per_bar: 4, beat_unit: 4}
+- {bar_position: 0, beat_per_bar: ${num}, beat_unit: ${den}}
 tempos:
 - {position: 0, bpm: ${tempo}}
 tracks:
@@ -118,7 +119,43 @@ export function importMusicXml(text) {
     out.push({ lyric: lyric ? unescape(lyric) : 'ー', midi, beats });
   }
   if (!out.some(n => n.midi != null)) throw new Error('이 MusicXML 파일에는 음표가 없습니다');
-  return { tempo, notes: clean(tidy(out)) };
+  const time = /<time(?:\s[^>]*)?>([\s\S]*?)<\/time>/.exec(part)?.[1] ?? '', num = +tag(time, 'beats'), den = +tag(time, 'beat-type'), fifths = +tag(tag(part, 'key') ?? '', 'fifths');
+  return { tempo, notes: clean(tidy(out)), sig: num > 0 && [1, 2, 4, 8, 16].includes(den) ? [Math.min(16, num), den] : [4, 4],
+    key: Number.isInteger(fifths) && Math.abs(fifths) <= 7 ? fifths : 0 };
+}
+
+// One part, one staff: bars of the time signature, notes over barlines tied, the lyric on the first piece of each note
+// (a held 'ー' goes without one: that is how a melisma reads back). MuseScore, Finale, Dorico and others open it.
+const XML_STEP = 'CDEFGAB', ALTER = { '-1': 'flat', 0: 'natural', 1: 'sharp' };
+const xml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
+export function exportMusicXml(notes, { tempo = 120, sig = [4, 4], key = 0, title = '' } = {}) {
+  const DIV = 480, at = b => Math.round(b * DIV);
+  const bars = measures(notes, sig).map((bar, b) => {
+    const acc = accidentals(bar, notes, key);
+    const body = bar.pieces.map((p, k) => {
+      const dur = at(p.beat + p.beats) - at(p.beat), n = notes[p.index];
+      const head = p.rest ? '<rest/>' : (s => `<pitch><step>${XML_STEP[s.letter]}</step>${s.alter ? `<alter>${s.alter}</alter>` : ''}<octave>${s.octave}</octave></pitch>`)(spell(n.midi, key));
+      const ties = p.rest ? '' : (p.tieStop ? '<tie type="stop"/>' : '') + (p.tieStart ? '<tie type="start"/>' : '');
+      const tied = p.rest ? '' : (p.tieStop ? '<tied type="stop"/>' : '') + (p.tieStart ? '<tied type="start"/>' : '');
+      const lyric = !p.rest && p.first && n.lyric && n.lyric !== 'ー' ? `<lyric number="1"><syllabic>single</syllabic><text>${xml(n.lyric)}</text></lyric>` : '';
+      return `<note>${head}<duration>${dur}</duration>${ties}<voice>1</voice><type>${p.type}</type>${'<dot/>'.repeat(p.dots)}`
+        + (acc[k] != null ? `<accidental>${ALTER[acc[k]]}</accidental>` : '')
+        + (p.tuplet ? '<time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification>' : '')
+        + (tied ? `<notations>${tied}</notations>` : '') + lyric + '</note>';
+    }).join('');
+    const attrs = b ? '' : `<attributes><divisions>${DIV}</divisions><key><fifths>${key}</fifths></key><time><beats>${sig[0]}</beats><beat-type>${sig[1]}</beat-type></time><clef><sign>G</sign><line>2</line></clef></attributes>`
+      + `<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${Math.round(tempo * 100) / 100}</per-minute></metronome></direction-type><sound tempo="${tempo}"/></direction>`;
+    return `<measure number="${b + 1}">${attrs}${body}</measure>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">${title ? `<work><work-title>${xml(title)}</work-title></work>` : ''}<identification><encoding><software>Hinase Toki</software></encoding></identification>
+<part-list><score-part id="P1"><part-name>Hinase Toki</part-name></score-part></part-list>
+<part id="P1">
+${bars.join('\n')}
+</part>
+</score-partwise>
+`;
 }
 
 // ---------------------------------------------------------------- MIDI

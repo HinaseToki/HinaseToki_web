@@ -2,9 +2,12 @@ import { toWav, modelCache, fetchManifest, LEAD } from './synth.js';
 import { SynthClient } from './client.js';
 import { toHiragana, morae, particles } from './kana.js';
 import { parseMidi, trackList, melody, alignLines, toNotes, noteName } from './midi.js';
-import { exportMidi, exportUstx, readScoreFile, writeProject } from './formats.js';
-import { HIGH, LOW, History, RANGE, addNote, clean, fromText, onsets, removeNotes, setExpr, setLyrics, toText, totalBeats, transpose } from './score.js';
+import { exportMidi, exportMusicXml, exportUstx, readScoreFile, writeProject } from './formats.js';
+import { HIGH, LOW, History, RANGE, addNote, clean, copyNotes, fromText, onsets, removeNotes, setExpr, setLyrics, toText, totalBeats, transpose, writeNotes } from './score.js';
 import { Roll } from './roll.js';
+import { Staff } from './staff.js';
+import { KEYS, KEY_NAMES, LETTERS, SIGS, barBeat, nearestPitch } from './notation.js';
+import { Transport } from './transport.js';
 import { mixdown, coverMix, COVER } from './mix.js';
 import { hasKanji, kanaOf } from './kanji.js';
 import { makeVideo, previewFrame, songLines } from './video.js';
@@ -22,44 +25,78 @@ const tempoOf = () => Math.min(400, Math.max(20, +$('tempo').value || 110));
 const fromPreset = k => PRESETS[k].map(([lyric, midi, beats]) => ({ lyric, midi, beats }));
 
 // ---------------------------------------------------------------- the score
+// the score's time signature and key: how it is written, not what is sung
+let meta = { sig: [4, 4], key: 0 };
+function setMeta(d) {
+  const sig = SIGS.find(s => s[0] === d?.sig?.[0] && s[1] === d?.sig?.[1]), key = KEYS.includes(d?.key) ? d.key : 0;
+  meta = { sig: sig ?? [4, 4], key };
+}
 // from the share link, else the last one used, else the first example
 function loadScore() {
   try {
     if (location.hash.length > 1) {
       const d = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(location.hash.slice(1)), c => c.charCodeAt(0))));
       if (d.tempo) $('tempo').value = Math.min(400, Math.max(20, +d.tempo || 110));
+      setMeta(d);
       return clean(d.notes);
     }
     const saved = JSON.parse(localStorage.getItem('toki-score') || 'null');
-    if (saved?.notes?.length) { $('tempo').value = Math.min(400, Math.max(20, +saved.tempo || 110)); return clean(saved.notes); }
+    if (saved?.notes?.length) { $('tempo').value = Math.min(400, Math.max(20, +saved.tempo || 110)); setMeta(saved); return clean(saved.notes); }
   } catch {}
   return fromPreset('こんにちは');
 }
 let notes = loadScore();
-const history = new History(notes);
-const save = () => { try { localStorage.setItem('toki-score', JSON.stringify({ tempo: tempoOf(), notes })); } catch {} };
+const history = new History({ notes, meta });          // the time signature and key go back with the notes
+const doc = () => ({ tempo: tempoOf(), sig: meta.sig, key: meta.key, notes });
+const save = () => { try { localStorage.setItem('toki-score', JSON.stringify(doc())); } catch {} };
 
-const roll = new Roll($('rollBox'), $('roll'), $('rollSpacer'), {
-  notes: () => notes,
+// two views of one score: the staff (as a score editor shows it) and the piano roll; the selection is shared
+const page = {
+  notes: () => notes, meta: () => meta,
   edit: (now, selection) => edit(now, selection),
-  select: () => showSelection(),
-  preview: midi => beep(midi, (ctx ??= new AudioContext()).currentTime, .2),
+  select: s => { ed.selected = s; showSelection(); },
+  preview: midi => { if (!tp.playing) beep(midi, (ctx ??= new AudioContext()).currentTime, .2); },
   lyric: i => askLyric(i),
-});
+  caret: beat => setCaret(beat),
+};
+const roll = new Roll($('rollBox'), $('roll'), $('rollSpacer'), page), staff = new Staff($('staffBox'), $('staff'), page), views = [staff, roll];
+let current = staff;
+const ed = {
+  get selected() { return current.selected; },
+  set selected(s) { for (const v of views) v.selected = s; },
+  set playhead(b) { for (const v of views) v.playhead = b; },
+  get playhead() { return current.playhead; },
+  set grid(g) { for (const v of views) v.grid = g; },
+  layout() { current.layout(); }, draw() { current.draw(); }, fit() { current.fit(); },
+  show: b => current.show(b), noteBox: i => current.noteBox(i), zoom: k => current.zoom(k),
+  setSelected: list => current.setSelected(list),
+};
+function showView(which, focus = false) {
+  current = which === 'roll' ? roll : staff;
+  $('rollBox').hidden = current !== roll; $('staffBox').hidden = current !== staff;
+  $('viewStaff').setAttribute('aria-pressed', current === staff); $('viewRoll').setAttribute('aria-pressed', current === roll);
+  $('viewHint').textContent = current === staff
+    ? '음표를 누르면 선택하고, 위아래로 끌면 음높이가 바뀝니다. 음표를 두 번 누르면 가사를 수정합니다. 빈 곳을 누르면 커서가 놓이며, N을 누른 뒤 A~G로 음을 입력합니다.'
+    : '빈 곳을 두 번 누르면 음표가 추가되고, 음표를 두 번 누르면 가사를 수정합니다. 음표를 끌면 음높이와 위치가, 오른쪽 끝을 끌면 길이가 변경됩니다. 빈 곳에서 끌면 여러 음표를 선택합니다.';
+  try { localStorage.setItem('toki-view', current === roll ? 'roll' : 'staff'); } catch {}
+  current.layout(); current.fit(); if (focus) current.canvas.focus({ preventScroll: true });
+}
+$('viewStaff').onclick = () => showView('staff', true);
+$('viewRoll').onclick = () => showView('roll', true);
 
 function edit(now, selection = null) {
-  notes = now; history.push(notes);
-  if (selection) roll.selected = new Set(selection); else roll.selected = new Set([...roll.selected].filter(i => notes[i] && notes[i].midi != null));
+  notes = now; history.push({ notes, meta });
+  if (selection) ed.selected = new Set(selection); else ed.selected = new Set([...ed.selected].filter(i => notes[i] && notes[i].midi != null));
   refresh();
 }
 function refresh() {
-  save(); roll.layout(); roll.draw(); showSelection();
+  save(); for (const v of views) v.layout(); current.draw(); showSelection(); songSource();
   if ($('tableBox').open) table();
   if (document.activeElement !== $('text')) $('text').value = toText(notes);
   $('undoBtn').disabled = !history.past.length; $('redoBtn').disabled = !history.future.length;
 }
-const replace = now => { roll.selected = new Set(); edit(now); roll.fit(); };
-const travel = state => { if (!state) return; notes = state; roll.selected = new Set(); refresh(); };
+const replace = now => { ed.selected = new Set(); caret = 0; edit(now); ed.fit(); };
+const travel = state => { if (!state) return; ({ notes, meta } = state); showMeta(); ed.selected = new Set(); refresh(); };
 $('undoBtn').onclick = () => travel(history.undo());
 $('redoBtn').onclick = () => travel(history.redo());
 addEventListener('keydown', e => {
@@ -70,8 +107,8 @@ addEventListener('keydown', e => {
 // the lyric of a note, typed right on the roll; several syllables go on into the next notes
 let editing = null;
 function askLyric(i) {
-  const box = roll.noteBox(i), f = $('lyricEdit');
-  editing = i; roll.setSelected([i]); f.hidden = false; f.value = notes[i].lyric;
+  const box = ed.noteBox(i), f = $('lyricEdit');
+  editing = i; ed.setSelected([i]); f.hidden = false; f.value = notes[i].lyric;
   f.style.left = Math.max(0, box.x) + 'px'; f.style.top = Math.max(0, box.y - 6) + 'px';
   f.focus(); f.select();
 }
@@ -104,16 +141,16 @@ function buildExpr() {
     Object.assign(s, { type: 'range', min: RANGE[k][0], max: RANGE[k][1], step, value: 0 });
     s.dataset.k = k; s.dataset.unit = unit;
     s.oninput = () => { o.textContent = s.value; };
-    s.onchange = () => edit(setExpr(notes, roll.selected, k, +s.value), roll.selected);
+    s.onchange = () => edit(setExpr(notes, ed.selected, k, +s.value), ed.selected);
     l.append(label, s, o); $('exprRows').append(l);
   }
   const b = document.createElement('button');
   b.className = 'ghost'; b.textContent = '표현 초기화'; b.type = 'button';
-  b.onclick = () => edit(Object.keys(EXPR).reduce((ns, k) => setExpr(ns, roll.selected, k, null), notes), roll.selected);
+  b.onclick = () => edit(Object.keys(EXPR).reduce((ns, k) => setExpr(ns, ed.selected, k, null), notes), ed.selected);
   $('exprRows').append(b);
 }
 function showSelection() {
-  const sel = [...roll.selected].filter(i => notes[i]?.midi != null).sort((a, b) => a - b), first = notes[sel[0]];
+  const sel = [...ed.selected].filter(i => notes[i]?.midi != null).sort((a, b) => a - b), first = notes[sel[0]];
   $('expr').disabled = !sel.length; $('delBtn').disabled = !sel.length;
   for (const s of $('exprRows').querySelectorAll('input')) {
     const v = first?.expr?.[s.dataset.k]; s.value = v ?? 0; s.nextElementSibling.textContent = v ?? '기본';
@@ -143,12 +180,178 @@ function table() {
 }
 $('tableBox').addEventListener('toggle', () => { if ($('tableBox').open) table(); });
 $('applyText').onclick = () => { try { replace(fromText($('text').value, toHiragana)); say(''); } catch (e) { say(e.message); } };
-$('addBtn').onclick = () => { const r = addNote(notes, totalBeats(notes), notes.findLast(n => n.midi != null)?.midi ?? 67, 1); edit(r.notes, [r.index]); roll.show(totalBeats(notes)); };
+$('addBtn').onclick = () => { const r = addNote(notes, totalBeats(notes), notes.findLast(n => n.midi != null)?.midi ?? 67, 1); edit(r.notes, [r.index]); ed.show(totalBeats(notes)); };
 $('restBtn').onclick = () => edit([...notes, { lyric: '', midi: null, beats: 1 }]);
-$('delBtn').onclick = () => edit(removeNotes(notes, roll.selected), []);
-$('grid').onchange = e => { roll.grid = +e.target.value; };
-$('zoomIn').onclick = () => roll.zoom(1.4); $('zoomOut').onclick = () => roll.zoom(1 / 1.4); $('zoomFit').onclick = () => roll.fit();
-$('transpose').onchange = e => { const k = +e.target.value; e.target.value = 0; edit(transpose(notes, roll.selected.size ? roll.selected : null, k), roll.selected); };
+$('delBtn').onclick = () => edit(removeNotes(notes, ed.selected), []);
+$('grid').onchange = e => { ed.grid = +e.target.value; };
+
+// ---------------------------------------------------------------- the score editor: cursor, signature, input, playback
+let caret = 0;                                     // where input and playback start (beats)
+const clock = sec => `${Math.floor(sec / 60)}:${(sec % 60).toFixed(1).padStart(4, '0')}`;
+function showPos(beat) {
+  const { bar, beat: b } = barBeat(beat, meta.sig);
+  $('posStatus').textContent = `${bar}마디 ${Math.round(b * 100) / 100}박 · ${clock(beat * 60 / tempoOf())}`;
+}
+function setCaret(beat) {
+  caret = Math.max(0, beat); for (const v of views) v.caret = caret;
+  if (!tp.playing) showPos(caret);
+  current.draw();
+}
+function showMeta() { $('sig').value = meta.sig.join('/'); $('keySig').value = meta.key; }
+for (const [n, d] of SIGS) $('sig').add(new Option(`${n}/${d}`, `${n}/${d}`));
+for (const k of KEYS) $('keySig').add(new Option(`${KEY_NAMES[k]}장조 (${k > 0 ? '♯' + k : k < 0 ? '♭' + -k : '없음'})`, k));
+$('sig').onchange = e => { const [n, d] = e.target.value.split('/').map(Number); meta = { ...meta, sig: [n, d] }; edit(notes, ed.selected); };
+$('keySig').onchange = e => { meta = { ...meta, key: +e.target.value }; edit(notes, ed.selected); };
+
+// note input, as MuseScore: N, then a length (2-7, . dotted, Alt+3 triplet) and the letters A-G at the cursor
+const DURS = [[2, '32분음표', 1 / 8, '32nd'], [3, '16분음표', .25, '16th'], [4, '8분음표', .5, 'eighth'], [5, '4분음표', 1, 'quarter'], [6, '2분음표', 2, 'half'], [7, '온음표', 4, 'whole']];
+let inputMode = false, dur = 5, dotted = false, triplet = false;
+const noteIcon = type => {
+  const open = type === 'half' || type === 'whole', flags = { eighth: 1, '16th': 2, '32nd': 3 }[type] ?? 0;
+  return `<svg viewBox="0 0 16 24" width="14" height="21" aria-hidden="true"><ellipse cx="6" cy="19" rx="4.2" ry="3" transform="rotate(-20 6 19)" fill="${open ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.6"/>`
+    + (type === 'whole' ? '' : '<path d="M9.6 18V3" stroke="currentColor" stroke-width="1.4"/>')
+    + Array.from({ length: flags }, (_, i) => `<path d="M9.6 ${3 + i * 4}q1 4 5 6" fill="none" stroke="currentColor" stroke-width="1.6"/>`).join('') + '</svg>';
+};
+for (const [key, name, , type] of DURS) {
+  const b = document.createElement('button');
+  Object.assign(b, { className: 'ghost icon', title: `${name} (${key})`, type: 'button', innerHTML: noteIcon(type) });
+  b.setAttribute('role', 'radio'); b.setAttribute('aria-label', name); b.dataset.key = key;
+  b.onclick = () => { dur = key; showInput(); };
+  $('durations').append(b);
+}
+const length = () => DURS.find(d => d[0] === dur)[2] * (dotted ? 1.5 : 1) * (triplet ? 2 / 3 : 1);
+function showInput() {
+  for (const b of $('durations').children) b.setAttribute('aria-checked', +b.dataset.key === dur);
+  $('dotBtn').setAttribute('aria-pressed', dotted); $('tripBtn').setAttribute('aria-pressed', triplet); $('inputBtn').setAttribute('aria-pressed', inputMode);
+  for (const v of views) v.inputMode = inputMode;
+  const name = (dotted ? '점' : '') + DURS.find(d => d[0] === dur)[1] + (triplet ? ' 셋잇단' : '');
+  $('modeStatus').textContent = inputMode ? `입력 모드 · ${name}` : `일반 모드 · ${name}`;
+  $('editor').classList.toggle('inputting', inputMode);
+  current.draw();
+}
+function setInput(on) {
+  inputMode = on;
+  if (on) { const sel = [...ed.selected].sort((a, b) => a - b); if (sel.length) setCaret(onsets(notes)[sel[0]]); }
+  showInput(); current.canvas.focus({ preventScroll: true });
+}
+$('inputBtn').onclick = () => setInput(!inputMode);
+$('dotBtn').onclick = () => { dotted = !dotted; showInput(); };
+$('tripBtn').onclick = () => { triplet = !triplet; showInput(); };
+// the pitch a letter means here: nearest to the selected note, else to the last one before the cursor
+function refPitch() {
+  const sel = [...ed.selected].filter(i => notes[i]?.midi != null);
+  if (sel.length) return notes[Math.max(...sel)].midi;
+  const o = onsets(notes);
+  return notes.findLast((n, i) => n.midi != null && o[i] < caret + 1e-6)?.midi ?? 67;
+}
+function enter(midi) {
+  const len = length(), r = writeNotes(notes, caret, [midi == null ? { lyric: '', midi: null, beats: len } : { lyric: 'ら', midi, beats: len }]);
+  edit(r.notes, r.indexes); setCaret(caret + len); current.show(caret);
+  if (midi != null) page.preview(midi);
+}
+function moveCaret(dir) {
+  const o = onsets(notes), marks = [...o, totalBeats(notes)];
+  const to = dir > 0 ? marks.find(b => b > caret + 1e-6) : marks.findLast(b => b < caret - 1e-6);
+  if (to == null) return;
+  setCaret(to); current.show(to);
+  const i = o.findIndex((b, k) => Math.abs(b - to) < 1e-6 && notes[k].midi != null);
+  ed.setSelected(i >= 0 ? [i] : []);
+  if (i >= 0) page.preview(notes[i].midi);
+}
+function inputKey(e) {
+  const k = e.key.toLowerCase(), cmd = e.ctrlKey || e.metaKey;
+  if (cmd) return false;
+  if (e.altKey && e.code === 'Digit3') { triplet = !triplet; showInput(); return true; }
+  if (e.altKey) return false;
+  if (k.length === 1 && LETTERS.includes(k)) { enter(nearestPitch(LETTERS.indexOf(k), refPitch(), meta.key, LOW, HIGH)); return true; }
+  if (k === '0') { enter(null); return true; }
+  if (/^[2-7]$/.test(k)) { dur = +k; showInput(); return true; }
+  if (k === '.') { dotted = !dotted; showInput(); return true; }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { moveCaret(e.key === 'ArrowRight' ? 1 : -1); return true; }
+  if (e.key === 'Backspace' && ed.selected.size) { const sel = [...ed.selected], at = Math.min(...sel.map(i => onsets(notes)[i])); edit(removeNotes(notes, sel), []); setCaret(at); return true; }
+  if (e.key === 'Escape') { setInput(false); return true; }
+  return false;
+}
+
+// copy, cut, paste (onto the selected note or the cursor, written over what is there)
+let clip = null, flashTimer = 0;
+function flash(text) { clearTimeout(flashTimer); $('modeStatus').textContent = text; flashTimer = setTimeout(showInput, 2000); }
+function copySel(cut) {
+  const sel = [...ed.selected]; if (!sel.length) return;
+  clip = copyNotes(notes, sel);
+  navigator.clipboard?.writeText(toText(clip)).catch(() => {});
+  if (cut) edit(removeNotes(notes, sel), []);
+  flash(`음표 ${clip.filter(n => n.midi != null).length}개를 ${cut ? '잘라냈습니다' : '복사했습니다'}`);
+}
+function paste() {
+  if (!clip?.length) return;
+  const sel = [...ed.selected], at = sel.length ? Math.min(...sel.map(i => onsets(notes)[i])) : caret;
+  const r = writeNotes(notes, at, clip);
+  edit(r.notes, r.indexes); setCaret(at + totalBeats(clip)); current.show(at);
+}
+
+// playback: from the selected note or the cursor; the loop is the selection (or the whole song)
+let songBuffer = null;
+const songMatches = () => !!song && song.tempo === tempoOf() && JSON.stringify(song.notes) === JSON.stringify(notes);
+function songSource() {
+  const ok = !!songBuffer && songMatches(), o = $('tSource').options[1];
+  o.disabled = !ok; o.textContent = ok || !songBuffer ? '생성한 노래' : '생성한 노래 (악보 변경됨)';
+  if (!ok && $('tSource').value === 'song') $('tSource').value = 'tone';
+}
+const pressed = id => $(id).getAttribute('aria-pressed') === 'true';
+const toggle = id => $(id).setAttribute('aria-pressed', !pressed(id));
+function loopSpan() {
+  if (!pressed('tLoop')) return null;
+  const sel = [...ed.selected], o = onsets(notes);
+  if (!sel.length) return [0, totalBeats(notes)];
+  return [Math.min(...sel.map(i => o[i])), Math.max(...sel.map(i => o[i] + notes[i].beats))];
+}
+const tp = new Transport(() => ({
+  notes, tempo: tempoOf(), sig: meta.sig, metronome: pressed('tClick'), loop: loopSpan(),
+  song: $('tSource').value === 'song' && songMatches() ? songBuffer : null,
+}), () => { ed.playhead = null; $('tPlay').textContent = '▶'; $('tPlay').setAttribute('aria-label', '재생'); showPos(caret); current.draw(); });
+function play() {
+  if (tp.playing) { tp.stop(); return; }
+  $('player').pause();
+  const sel = [...ed.selected], o = onsets(notes), loop = loopSpan();
+  const from = sel.length ? Math.min(...sel.map(i => o[i])) : loop && (caret < loop[0] || caret >= loop[1]) ? loop[0] : caret >= totalBeats(notes) ? 0 : caret;
+  tp.play(from); $('tPlay').textContent = '⏸'; $('tPlay').setAttribute('aria-label', '정지');
+  const frame = () => {
+    if (!tp.playing) return;
+    const b = tp.beat; if (b >= 0) { ed.playhead = b; showPos(b); current.show(b); current.draw(); }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+$('tPlay').onclick = play;
+$('tRewind').onclick = () => { const was = tp.playing; tp.stop(); ed.setSelected([]); setCaret(0); current.show(0); if (was) play(); };
+$('tLoop').onclick = () => toggle('tLoop');
+$('tClick').onclick = () => toggle('tClick');
+$('keysBtn').onclick = () => $('keysHelp').showModal();
+
+// the editor's keys, before the views' own: input mode, playback, clipboard, help
+addEventListener('keydown', e => {
+  if (e.isComposing || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.closest?.('dialog')) return;
+  if (!(e.target === document.body || e.target.closest?.('#editor'))) return;
+  const cmd = e.ctrlKey || e.metaKey, k = e.key.toLowerCase(), done = () => { e.preventDefault(); e.stopPropagation(); };
+  if (inputMode && inputKey(e)) return done();
+  if (e.target.tagName === 'BUTTON' && e.key === 'Enter') return;
+  if (e.key === ' ' && !cmd) { play(); return done(); }
+  if (e.key === 'Home') { $('tRewind').click(); return done(); }
+  if (cmd && (k === 'c' || k === 'x') && !getSelection().toString()) { copySel(k === 'x'); return done(); }
+  if (cmd && k === 'v') { paste(); return done(); }
+  if (cmd || e.altKey) return;
+  if (k === 'n') { setInput(!inputMode); return done(); }
+  if (k === 'm') { toggle('tClick'); return done(); }
+  if (k === 'l') { toggle('tLoop'); return done(); }
+  if (e.key === '?') { $('keysHelp').showModal(); return done(); }
+}, true);
+addEventListener('keyup', e => { if (e.key === ' ' && e.target.tagName === 'BUTTON' && e.target.closest('#editor')) e.preventDefault(); }, true);
+// a click on the toolbar leaves the keys with the score, as in a score editor
+document.querySelector('#editor .toolbar').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+showInput();
+$('zoomIn').onclick = () => ed.zoom(1.4); $('zoomOut').onclick = () => ed.zoom(1 / 1.4); $('zoomFit').onclick = () => ed.fit();
+$('transpose').onchange = e => { const k = +e.target.value; e.target.value = 0; edit(transpose(notes, ed.selected.size ? ed.selected : null, k), ed.selected); };
 for (const k of Object.keys(PRESETS)) $('preset').add(new Option(k, k));
 $('preset').add(new Option('—', ''), 0); $('preset').value = '';
 $('preset').onchange = e => { if (e.target.value) replace(fromPreset(e.target.value)); };
@@ -162,7 +365,7 @@ async function readKanji(id) {
   try { f.value = (await Promise.all(f.value.split('\n').map(kanaOf))).join('\n'); say('한자를 가나로 변환했습니다. 읽기가 맞는지 확인해 주십시오'); }
   catch (e) { say(e.message); throw e; }
 }
-$('splitBtn').onclick = async () => { try { await readKanji('lyricLine'); } catch { return; } const ms = morae($('lyricLine').value); if (ms.length) edit(setLyrics(notes, roll.selected.size ? Math.min(...roll.selected) : 0, ms)); };
+$('splitBtn').onclick = async () => { try { await readKanji('lyricLine'); } catch { return; } const ms = morae($('lyricLine').value); if (ms.length) edit(setLyrics(notes, ed.selected.size ? Math.min(...ed.selected) : 0, ms)); };
 
 // melody preview with a plain tone (no model needed)
 var ctx;
@@ -175,18 +378,8 @@ function beep(midi, start, dur) {
   o.connect(g).connect(ctx.destination); o.start(start); o.stop(start + dur);
   return o;
 }
-let melodyTones = [];
-$('previewBtn').onclick = () => {
-  if (melodyTones.length) { for (const o of melodyTones) o.stop(); melodyTones = []; $('previewBtn').textContent = '멜로디 미리 듣기'; return; }
-  ctx ??= new AudioContext();
-  const beat = 60 / tempoOf(); let t = ctx.currentTime + .05;
-  for (const n of notes) { if (n.midi != null) melodyTones.push(beep(n.midi, t, n.beats * beat)); t += n.beats * beat; }
-  const last = melodyTones[melodyTones.length - 1];
-  if (last) { $('previewBtn').textContent = '멜로디 정지'; last.onended = () => { melodyTones = []; $('previewBtn').textContent = '멜로디 미리 듣기'; }; }
-};
-
 $('shareBtn').onclick = async () => {
-  const bytes = new TextEncoder().encode(JSON.stringify({ tempo: tempoOf(), notes })); let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+  const bytes = new TextEncoder().encode(JSON.stringify(doc())); let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
   const url = location.href.split('#')[0] + '#' + btoa(bin);
   if (url.length > 30000) { say('악보가 길어 링크를 만들 수 없습니다. "프로젝트 저장"으로 저장한 파일을 공유해 주십시오'); return; }
   window.history.replaceState(null, '', url);
@@ -198,14 +391,15 @@ function saveFile(data, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => ({
-  toki: () => saveFile(writeProject({ tempo: tempoOf(), notes }), 'toki_project.json', 'application/json'),
-  ustx: () => saveFile(exportUstx(notes, tempoOf()), 'toki.ustx', 'text/yaml'),
+  toki: () => saveFile(writeProject(doc()), 'toki_project.json', 'application/json'),
+  musicxml: () => saveFile(exportMusicXml(notes, { tempo: tempoOf(), ...meta }), 'toki.musicxml', 'application/vnd.recordare.musicxml+xml'),
+  ustx: () => saveFile(exportUstx(notes, tempoOf(), meta.sig), 'toki.ustx', 'text/yaml'),
   mid: () => saveFile(exportMidi(notes, tempoOf()), 'toki.mid', 'audio/midi'),
   txt: () => saveFile(`tempo: ${tempoOf()}\n${toText(notes)}\n`, 'toki.txt', 'text/plain'),
 })[b.dataset.save]();
 $('scoreFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const r = await readScoreFile(f); $('tempo').value = r.tempo; replace(r.notes.map(n => n.midi == null ? n : { ...n, lyric: toHiragana(n.lyric) })); say(`${f.name}: 음표 ${notes.filter(n => n.midi != null).length}개를 불러왔습니다`); }
+  try { const r = await readScoreFile(f); $('tempo').value = r.tempo; if (r.sig || r.key != null) { setMeta(r); showMeta(); } replace(r.notes.map(n => n.midi == null ? n : { ...n, lyric: toHiragana(n.lyric) })); say(`${f.name}: 음표 ${notes.filter(n => n.midi != null).length}개를 불러왔습니다`); }
   catch (err) { say(err.message); }
   e.target.value = '';
 };
@@ -300,6 +494,9 @@ async function sing() {
     $('player').src = songUrl; $('player').hidden = false; $('player').play().catch(() => {});
     $('download').href = songUrl; $('download').hidden = false;
     song = { audio: r.audio, sampleRate: r.sampleRate, notes: mine, tempo, phrases: r.phrases };
+    songBuffer = new AudioBuffer({ length: r.audio.length, sampleRate: r.sampleRate, numberOfChannels: 1 });
+    songBuffer.copyToChannel(r.audio, 0); songBuffer.lead = LEAD; songSource();
+    if (songMatches()) $('tSource').value = 'song';
     showPhrases(); showVideoCard(); $('mixBox').hidden = false;
     const w = warnings();
     say(w.length ? w.slice(0, 3).join(' / ') + (w.length > 3 ? ` 외 ${w.length - 3}개` : '') : '');
@@ -320,12 +517,12 @@ function showPhrases() {
 // moving line over the roll while the song plays
 function follow() {
   const p = $('player');
-  if (p.paused || p.ended) { roll.playhead = p.ended ? null : roll.playhead; roll.draw(); return; }
-  roll.playhead = Math.max(0, (p.currentTime - LEAD) * (song?.tempo ?? tempoOf()) / 60);
-  roll.show(roll.playhead); roll.draw(); requestAnimationFrame(follow);
+  if (p.paused || p.ended) { ed.playhead = p.ended ? null : ed.playhead; ed.draw(); return; }
+  ed.playhead = Math.max(0, (p.currentTime - LEAD) * (song?.tempo ?? tempoOf()) / 60);
+  ed.show(ed.playhead); ed.draw(); requestAnimationFrame(follow);
 }
 $('player').addEventListener('play', () => requestAnimationFrame(follow));
-$('player').addEventListener('ended', () => { roll.playhead = null; roll.draw(); });
+$('player').addEventListener('ended', () => { ed.playhead = null; ed.draw(); });
 
 // ---------------------------------------------------------------- backing track
 let back = null, mixUrl = null;
@@ -462,5 +659,7 @@ $('videoBtn').onclick = async () => {
   $('videoBtn').disabled = false; $('vStop').hidden = true; $('vBar').hidden = true; videoJob = null;
 };
 
-addEventListener('resize', () => { roll.layout(); roll.draw(); });
-buildExpr(); refresh(); roll.fit();
+addEventListener('resize', () => { ed.layout(); ed.draw(); });
+buildExpr(); showMeta(); refresh();
+showView((() => { try { return localStorage.getItem('toki-view'); } catch { return null; } })() ?? 'staff');
+setCaret(0);

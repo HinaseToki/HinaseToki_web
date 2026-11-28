@@ -76,6 +76,28 @@ export function addNote(notes, beat, midi, beats, lyric = 'ら') {
   return { notes: out, index: out.indexOf(n) };
 }
 
+// Notes written over the score from `beat` on (as a score editor's note input and paste do): what sang there goes,
+// a note reaching in from before is cut short. {notes, indexes of the written sung notes}
+export function writeNotes(notes, beat, list) {
+  const span = totalBeats(list), end = beat + span, kept = [];
+  for (const [o, n] of placed(copy(notes))) {
+    if (o + n.beats <= beat + 1e-6 || o >= end - 1e-6) kept.push([o, n]);
+    else if (o < beat - 1e-6) { n.beats = beat - o; kept.push([o, n]); }
+  }
+  const added = []; let t = beat;
+  for (const n of copy(list)) { if (n.midi != null) added.push([t, n]); t += n.beats; }
+  const out = fromOnsets([...kept, ...added], Math.max(totalBeats(notes), end));
+  return { notes: out, indexes: added.map(([, n]) => out.indexOf(n)) };
+}
+
+// The chosen notes as a clip to paste: from the first one's start, rests between, none before.
+export function copyNotes(notes, indexes) {
+  const on = new Set(indexes), picked = placed(copy(notes)).filter(([, , i]) => on.has(i));
+  if (!picked.length) return [];
+  const start = picked[0][0];
+  return fromOnsets(picked.map(([o, n]) => [o - start, n]));
+}
+
 export function splitNote(notes, i) {
   const ns = copy(notes), half = ns[i].beats / 2;
   if (half < MIN_BEATS) return ns;
